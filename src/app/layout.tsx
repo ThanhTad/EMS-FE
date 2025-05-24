@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
+import { Toaster } from "@/components/ui/sonner"; // Thêm nếu dùng sonner
+import { ThemeProvider } from "next-themes";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -23,8 +26,10 @@ export default function RootLayout({
           inter.variable
         )}
       >
-        {/* Có thể thêm ThemeProvider nếu bạn dùng dark mode của shadcn */}
-        {children}
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <AuthProvider> {children}</AuthProvider>
+        </ThemeProvider>
+        <Toaster /> {/* Nếu bạn dùng Toast/UI notifications */}
       </body>
     </html>
   );
