@@ -12,7 +12,16 @@ module.exports = {
   darkMode: "class",
   theme: {
     extend: {
-      // tuỳ chỉnh theme nếu muốn
+      keyframes: {
+        "shake-short": {
+          "0%, 100%": { transform: "translateX(0)" },
+          "10%, 30%, 50%, 70%, 90%": { transform: "translateX(-3px)" },
+          "20%, 40%, 60%, 80%": { transform: "translateX(3px)" },
+        },
+      },
+      animation: {
+        "shake-short": "shake-short 0.4s ease-in-out",
+      },
     },
   },
 

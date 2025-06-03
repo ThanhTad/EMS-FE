@@ -143,10 +143,16 @@ export interface RegisterRequest {
   phone?: string;
 }
 
+export interface ResetOtpResponse {
+  message: string;
+  resetToken: string;
+}
+
 export interface AuthResponse {
-  accessTokenExpiresIn: number;
-  user: User;
-  twoFactorRequired?: boolean;
+  accessTokenExpiresIn?: number;
+  twoFactorEnabled?: boolean;
+  challengeToken?: string;
+  user?: User;
 }
 
 export interface RefreshTokenRequest {
@@ -157,38 +163,48 @@ export interface RequestPasswordResetRequest {
   email: string;
 }
 
-export interface ResetPasswordRequest {
+export interface ResetPasswordWithTokenRequest {
   email: string;
-  otp: string;
+  resetToken: string;
   newPassword: string;
+  confirmPassword: string;
+}
+
+export interface ResetPasswordVerificationResponse {
+  resetToken: string;
+  message: string;
+  expiresAt: number;
 }
 
 export enum OtpType {
-  TWO_FACTOR_AUTH_LOGIN = "2FA",
-  PASSWORD_RESET = "PWD_RESET",
-  EMAIL_VERIFICATION = "EMAIL_VERIFICATION",
-  ENABLE_2FA_VERIFICATION = "ENABLE_2FA_VERIFICATION",
-  DISABLE_2FA_CONFIRMATION_OTP = "DISABLE_2FA_CONFIRMATION_OTP",
+  TWO_FACTOR_AUTH_LOGIN = "2FA", // Khi login cần xác thực 2FA
+  PASSWORD_RESET = "PWD_RESET", // Quên mật khẩu
+  EMAIL_VERIFICATION = "EMAIL_VERIFICATION", // Xác thực email mới/đăng ký
+  ENABLE_2FA_VERIFICATION = "ENABLE_2FA_VERIFICATION", // Bật 2FA (xác thực enable)
+  DISABLE_2FA_VERIFICATION = "DISABLE_2FA_VERIFICATION", // Tắt 2FA (xác thực disable)
 }
 
 export interface VerifyOtpRequest {
   identifier?: string;
   otp: string;
   otpType: OtpType;
+  challengeToken?: string; // Token từ quá trình xác thực 2FA nếu có
 }
 
 export interface SentOtpRequest {
-  identifier: string;
+  username: string;
   otpType: OtpType;
 }
 
 export interface ResendOtpRequest {
   identifier: string;
   otpType: OtpType;
+  challengeToken?: string; // Token từ quá trình xác thực 2FA nếu có
 }
 
 export interface Enable2FARequest {
-  identifier: string;
+  username: string;
+  otp: string;
 }
 
 export interface Enable2FAResponse {
@@ -199,7 +215,7 @@ export interface Enable2FAResponse {
 }
 
 export interface Disable2FARequest {
-  identifier?: string;
+  username?: string;
   otp: string;
 }
 
@@ -212,6 +228,7 @@ export interface AuthContextType {
   logout: () => void;
   refreshToken: () => Promise<void>;
   hasRole: (role: UserRole) => boolean;
+  fetchUser: () => Promise<void>;
 }
 
 // =========================================

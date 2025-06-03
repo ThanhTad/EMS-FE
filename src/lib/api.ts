@@ -3,12 +3,13 @@ import {
   LoginRequest,
   AuthResponse,
   RequestPasswordResetRequest,
-  ResetPasswordRequest,
   Enable2FARequest,
   Disable2FARequest,
   ResendOtpRequest,
   VerifyOtpRequest,
   RegisterRequest,
+  ResetPasswordVerificationResponse,
+  ResetPasswordWithTokenRequest,
   Paginated,
   TicketPurchase,
   UpdateUserSettingsRequest,
@@ -58,37 +59,59 @@ export const registerAPI = (
 export const requestPasswordResetAPI = (data: RequestPasswordResetRequest) =>
   API.post("/api/v1/auth/pass-reset/request", data);
 
-export const resetPasswordAPI = (data: ResetPasswordRequest) =>
+export const verifyPasswordResetOtpAPI = (data: VerifyOtpRequest) =>
+  API.post<{ data: ResetPasswordVerificationResponse }>(
+    "/api/v1/auth/pass-reset/verify-otp",
+    data
+  ).then((res) => res.data.data);
+
+export const resetPasswordAPI = (data: ResetPasswordWithTokenRequest) =>
   API.post("/api/v1/auth/pass-reset/confirm", data);
 
 export const logoutAPI = () => API.post("/api/v1/auth/logout");
 
-// Two-Factor Authentication
-export const enable2FAAPI = (data: Enable2FARequest) =>
-  API.post<{ data: Enable2FARequest }>("/api/v1/auth/2fa/enable", data);
-
-export async function sendOtpToDisable2FAAPI(
-  request: SentOtpRequest
-): Promise<ApiResponse<void>> {
-  const res = await API.post<{ data: ApiResponse<void> }>(
-    "/api/v1/auth/2fa/disable/sent-otp",
-    null,
-    { params: request }
+export const getMeAPI = () =>
+  API.get<{ data: ApiResponse<AuthResponse> }>("/api/v1/auth/me").then(
+    (res) => res.data.data
   );
-  return res.data.data;
-}
+
+export const verifyEmailOtpAPI = (data: VerifyOtpRequest) =>
+  API.post("/api/v1/auth/email/verify", data).then((res) => res.data.data);
+
+// Two-Factor Authentication
+export const sendOtpToEnable2FAAPI = (data: SentOtpRequest) =>
+  API.post<{ data: ApiResponse<void> }>(
+    "/api/v1/auth/2fa/enable/sent-otp",
+    data
+  ).then((res) => res.data.data);
+
+export const enable2FAAPI = (data: Enable2FARequest) =>
+  API.post<{ data: ApiResponse<void> }>("/api/v1/auth/2fa/enable", data).then(
+    (res) => res.data.data
+  );
 
 export const disable2FAAPI = (data: Disable2FARequest) =>
-  API.post("/api/v1/auth/2fa/disable", data);
+  API.post<{ data: ApiResponse<void> }>("/api/v1/auth/2fa/disable", data).then(
+    (res) => res.data.data
+  );
 
-export const resendOtpAPI = (data: ResendOtpRequest) =>
-  API.post("/api/v1/auth/otp/resend", data);
+export const sendOtpToDisable2FAAPI = (data: SentOtpRequest) =>
+  API.post<{ data: ApiResponse<void> }>(
+    "/api/v1/auth/2fa/disable/sent-otp",
+    data
+  ).then((res) => res.data.data);
 
+// Verify 2FA OTP after login (requires Authorization header with temp token)
 export const verify2FAAPI = (data: VerifyOtpRequest) =>
   API.post<{ data: ApiResponse<AuthResponse> }>(
     "/api/v1/auth/2fa/verify",
     data
   ).then((res) => res.data.data);
+
+export const resendOtpAPI = (data: ResendOtpRequest) =>
+  API.post<{ data: ApiResponse<void> }>("/api/v1/auth/otp/resend", data).then(
+    (res) => res.data.data
+  );
 
 // User Profile
 export async function getUserProfile(userId: string): Promise<User> {
@@ -480,7 +503,7 @@ export async function adminSearchEvents(params: {
   totalElements: number;
 }> {
   try {
-    const res = await axios.get("/api/v1/events/search", {
+    const res = await API.get("/api/v1/events/search", {
       params,
       withCredentials: true,
     });
@@ -498,7 +521,7 @@ export async function searchEvents(params: {
   sort?: string;
 }): Promise<Paginated<Event>> {
   try {
-    const res = await axios.get("/api/v1/events/search", {
+    const res = await API.get("/api/v1/events/search", {
       params,
       withCredentials: true,
     });
@@ -511,7 +534,7 @@ export async function searchEvents(params: {
 
 export async function adminGetOrganizers(): Promise<User[]> {
   try {
-    const res = await axios.get("/api/v1/users", {
+    const res = await API.get("/api/v1/users", {
       params: { size: 1000, role: "ROLE_ORGANIZER" },
       withCredentials: true,
     });
@@ -520,5 +543,28 @@ export async function adminGetOrganizers(): Promise<User[]> {
   } catch (error: unknown) {
     if (error instanceof Error) console.error(error.message);
     return [];
+  }
+}
+
+// Upload user avatar
+export async function uploadUserAvatar(
+  userId: string,
+  blob: Blob
+): Promise<string | null> {
+  try {
+    const formData = new FormData();
+    formData.append("file", blob);
+
+    const res = await API.post(`/api/v1/users/${userId}/avatar`, formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+      withCredentials: true,
+    });
+
+    return res.data.data;
+  } catch (error: unknown) {
+    if (error instanceof Error) console.error(error.message);
+    return null;
   }
 }

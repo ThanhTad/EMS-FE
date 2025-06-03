@@ -1,6 +1,6 @@
 // hooks/useUserProfile.ts
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { User, UserProfileUpdateRequest } from "@/types";
 import { getUserProfile, updateUserProfile } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,6 +13,29 @@ export function useUserProfile() {
   const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    if (user) {
+      setLoading(true);
+      try {
+        const data = await getUserProfile(user.id);
+        setProfile(data);
+        setError(null);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Không thể tải profile");
+      } finally {
+        setLoading(false);
+      }
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      refetch();
+    } else {
+      setLoading(false);
+    }
+  }, [user, refetch]);
 
   useEffect(() => {
     if (user) {
@@ -50,5 +73,6 @@ export function useUserProfile() {
     loading,
     error,
     saveProfile,
+    refetch,
   };
 }

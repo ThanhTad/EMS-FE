@@ -29,7 +29,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <AuthProvider> {children}</AuthProvider>
         </ThemeProvider>
-        <Toaster /> {/* Nếu bạn dùng Toast/UI notifications */}
+        <Toaster />
       </body>
     </html>
   );

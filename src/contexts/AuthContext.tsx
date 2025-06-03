@@ -1,3 +1,4 @@
+//app/src/contexts/AuthContext.tsx
 "use client";
 
 import React, {
@@ -6,6 +7,8 @@ import React, {
   useState,
   useEffect,
   ReactNode,
+  useRef,
+  useCallback,
 } from "react";
 import {
   AuthContextType,
@@ -29,21 +32,41 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Khi mount, fetch user info từ API (đã có cookie)
-  useEffect(() => {
-    async function fetchUser() {
-      try {
-        const me = await getCurrentUserInfo();
-        setUser(me.user);
-      } catch {
-        setUser(null);
+  const fetchUser = useCallback(async () => {
+    try {
+      const me = await getCurrentUserInfo();
+      if (JSON.stringify(me.user) !== JSON.stringify(user)) {
+        setUser(me.user ?? null);
       }
-      setIsLoading(false);
+    } catch {
+      if (user !== null) setUser(null);
     }
-    fetchUser();
-  }, []);
+    if (isLoading) setIsLoading(false);
+  }, [user, isLoading]);
 
+  useEffect(() => {
+    fetchUser();
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+    };
+  }, [fetchUser]); // Đưa fetchUser vào dependency array
+
+  // Đặt lịch tự động refresh token
+  const scheduleRefresh = (expiresIn: number) => {
+    // Xóa timeout cũ nếu có
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+    // expiresIn là số giây, refresh trước khi hết hạn 30s
+    const refreshTime = Math.max(0, expiresIn - 30) * 1000;
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshToken();
+    }, refreshTime);
+  };
   const isAuthenticated = !!user;
 
   const login = async (
@@ -51,7 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<ApiResponse<AuthResponse>> => {
     const res = await loginAPI(creds);
     // Sau khi BE set cookie, lấy user từ response
-    setUser(res.data.data.user);
+    if (!res.data.data.user?.twoFactorEnabled) {
+      setUser(res.data.data.user ?? null);
+      // Đặt lịch refresh nếu có expiresIn
+      if (res.data.data.accessTokenExpiresIn) {
+        scheduleRefresh(res.data.data.accessTokenExpiresIn);
+      }
+    }
     return res.data;
   };
 
@@ -63,19 +92,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshToken = async (): Promise<void> => {
-    await refreshTokenAPI();
-    // BE sẽ set lại cookie accessToken, bạn có thể fetch lại user nếu muốn
-    try {
-      const me = await getCurrentUserInfo();
-      setUser(me.user);
-    } catch {
-      setUser(null);
+    const res = await refreshTokenAPI();
+    // Đặt lại lịch refresh nếu có accessTokenExpiresIn
+    if (res.accessTokenExpiresIn) {
+      scheduleRefresh(res.accessTokenExpiresIn);
     }
+    await fetchUser();
   };
 
   const logout = async () => {
     await logoutAPI();
     setUser(null);
+    // Clear timeout khi logout
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
   };
 
   const hasRole = (roleToCheck: UserRole): boolean => {
@@ -96,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshToken,
         logout,
         hasRole,
+        fetchUser,
       }}
     >
       {children}
