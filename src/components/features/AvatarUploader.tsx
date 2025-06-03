@@ -1,11 +1,19 @@
 // components/features/AvatarUploader.tsx
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import Cropper, { Area } from "react-easy-crop";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toBlob } from "@/lib/utils";
+
+const ACCEPTED_TYPES = ["image/jpeg", "image/png"];
+const MAX_SIZE = 2 * 1024 * 1024; // 2MB
 
 export default function AvatarUploader({
   onSave,
@@ -18,14 +26,30 @@ export default function AvatarUploader({
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError(null);
     const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setImageSrc(url);
-      setOpen(true);
+    if (!file) return;
+
+    // Validate type
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      setError("Chỉ hỗ trợ file JPG hoặc PNG.");
+      e.target.value = "";
+      return;
     }
+    // Validate size
+    if (file.size > MAX_SIZE) {
+      setError("Kích thước tối đa 2MB.");
+      e.target.value = "";
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setImageSrc(url);
+    setOpen(true);
   };
 
   const onCropComplete = useCallback(
@@ -38,26 +62,44 @@ export default function AvatarUploader({
   const handleSave = useCallback(async () => {
     if (!imageSrc || !croppedAreaPixels) return;
     setSaving(true);
+    setError(null);
     try {
       const blob = await toBlob(imageSrc, croppedAreaPixels);
+      if (!blob) throw new Error("Không thể xử lý ảnh");
       await onSave(blob);
       setOpen(false);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError("Có lỗi khi lưu ảnh, hãy thử lại.");
+      }
     } finally {
       setSaving(false);
-      URL.revokeObjectURL(imageSrc);
+      if (imageSrc) URL.revokeObjectURL(imageSrc);
       setImageSrc(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }, [imageSrc, croppedAreaPixels, onSave]);
+
+  const handleDialogClose = useCallback(() => {
+    setOpen(false);
+    if (imageSrc) URL.revokeObjectURL(imageSrc);
+    setImageSrc(null);
+    setError(null);
+    setSaving(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, [imageSrc]);
 
   return (
     <>
       <div>
         <input
+          ref={fileInputRef}
           type="file"
           id="avatar-upload"
-          accept="image/*"
+          accept="image/jpeg,image/png"
           className="hidden"
           onChange={onFileChange}
+          disabled={saving}
         />
         <label htmlFor="avatar-upload">
           <Button
@@ -65,14 +107,21 @@ export default function AvatarUploader({
             size="sm"
             asChild
             className="dark:border-gray-600 dark:text-gray-100"
+            disabled={saving}
           >
-            <span>Cập nhật ảnh đại diện</span>
+            <span>{saving ? "Đang tải..." : "Cập nhật ảnh đại diện"}</span>
           </Button>
         </label>
+        {error && (
+          <div className="text-xs text-red-500 mt-1 whitespace-pre-line">
+            {error}
+          </div>
+        )}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleDialogClose}>
         <DialogContent className="max-w-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+          <DialogTitle>Cập nhật ảnh đại diện</DialogTitle>
           <div className="relative w-full h-80 bg-gray-200 dark:bg-gray-700">
             {imageSrc && (
               <Cropper
@@ -99,14 +148,20 @@ export default function AvatarUploader({
               value={zoom}
               onChange={(e) => setZoom(Number(e.target.value))}
               className="dark:accent-primary"
+              disabled={saving}
             />
           </div>
-
+          {error && (
+            <div className="text-xs text-red-500 mt-2 whitespace-pre-line">
+              {error}
+            </div>
+          )}
           <DialogFooter className="mt-6 flex justify-end gap-2">
             <Button
               variant="outline"
-              onClick={() => setOpen(false)}
+              onClick={handleDialogClose}
               className="dark:border-gray-600 dark:text-gray-100"
+              disabled={saving}
             >
               Huỷ
             </Button>

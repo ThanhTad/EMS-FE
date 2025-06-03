@@ -98,7 +98,7 @@ const Header = () => {
                 >
                   <Avatar className="h-8 w-8">
                     <AvatarImage
-                      src="/imgs/default-avatar.png"
+                      src={user.avatarUrl || "/imgs/default-avatar.png"}
                       alt={displayName}
                     />
                     <AvatarFallback>

@@ -11,7 +11,7 @@ import { cookies } from "next/headers";
 import { Metadata } from "next";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { redirect } from "next/navigation";
-import { User } from "@/types";
+import { AuthResponse } from "@/types";
 
 export const metadata: Metadata = {
   title: "Quản lý Sự kiện | Admin EMS",
@@ -19,27 +19,38 @@ export const metadata: Metadata = {
 };
 
 interface AdminEventsPageProps {
-  searchParams: Record<string, string | undefined>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }
 
 export default async function AdminEventsPage({
   searchParams,
 }: AdminEventsPageProps) {
+  // Await searchParams since it's a Promise in newer Next.js versions
+  const resolvedSearchParams = await searchParams;
+
   const cookieStore = await cookies();
   const tokenCookie = cookieStore.get("ems_auth_token");
   const token = tokenCookie?.value;
 
-  if (!token) redirect("/login");
-
-  // Lấy thông tin user hiện tại
-  let currentUser: User & { role: string };
-  try {
-    currentUser = await getCurrentUserInfo();
-  } catch (e) {
-    console.error(e);
+  if (!token) {
     redirect("/login");
   }
 
+  // Lấy thông tin user hiện tại
+  let authResponse: AuthResponse;
+  try {
+    authResponse = await getCurrentUserInfo();
+  } catch (error) {
+    console.error("Error getting current user info:", error);
+    redirect("/login");
+  }
+
+  if (!authResponse.user) {
+    console.error("No user information found in auth response.");
+    redirect("/login");
+  }
+
+  const currentUser = authResponse.user;
   // Hiển thị nút tạo mới nếu có quyền
   const canCreateEvent =
     currentUser.role === "ROLE_ADMIN" || currentUser.role === "ROLE_ORGANIZER";
@@ -53,8 +64,8 @@ export default async function AdminEventsPage({
         {canCreateEvent && (
           <Button asChild>
             <Link href="/admin/events/new">
-              <PlusCircle className="mr-2 h-4 w-4 dark:text-gray-300" /> Thêm sự
-              kiện mới
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Thêm sự kiện mới
             </Link>
           </Button>
         )}
@@ -68,15 +79,19 @@ export default async function AdminEventsPage({
           />
         }
       >
-        <EventsTable searchParams={searchParams} />
+        <EventsTable searchParams={resolvedSearchParams} />
       </Suspense>
     </div>
   );
 }
 
-async function EventsTable({ searchParams }: AdminEventsPageProps) {
-  const pageParam = Number(searchParams.page ?? "1") - 1;
-  const sizeParam = Number(searchParams.size ?? "10");
+interface EventsTableProps {
+  searchParams: Record<string, string | undefined>;
+}
+
+async function EventsTable({ searchParams }: EventsTableProps) {
+  const pageParam = Math.max(0, Number(searchParams.page ?? "1") - 1);
+  const sizeParam = Math.max(1, Number(searchParams.size ?? "10"));
   const keyword = searchParams.keyword;
   const sort = searchParams.sort;
 
@@ -94,23 +109,16 @@ async function EventsTable({ searchParams }: AdminEventsPageProps) {
           sort,
         });
 
-    // Nếu muốn hiện tên người tạo, FE nên lấy thêm danh sách moderator và truyền vào columns
-    // Ở đây giả sử chỉ hiện id hoặc đã custom columns riêng
-
     return (
       <DataTable
         columns={eventColumns(keyword ?? "")}
-        data={eventsData.content}
-        pageCount={eventsData.totalPages}
-        totalRecords={eventsData.totalElements}
+        data={eventsData.content ?? []}
+        pageCount={eventsData.totalPages ?? 0}
+        totalRecords={eventsData.totalElements ?? 0}
       />
     );
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("Failed to fetch events for admin:", error.message);
-    } else {
-      console.error("Unknown error: ", error);
-    }
+    console.error("Failed to fetch events for admin:", error);
 
     return (
       <Alert
