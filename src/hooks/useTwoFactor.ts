@@ -72,7 +72,7 @@ export function useTwoFactor() {
 
   // Gửi lại OTP cho mọi flow
   const resendOtp = (
-    identifier: string, 
+    identifier: string,   
     otpType: OtpType,
     challengeToken?: string
   ) => resendOtpAPI({ identifier, otpType, challengeToken });
