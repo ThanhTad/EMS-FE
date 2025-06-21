@@ -1,12 +1,12 @@
 // app/(main)/my-tickets/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
-import { getTicketPurchasesByUser } from "@/lib/api";
-import { Paginated, TicketPurchase } from "@/types";
-import TicketPurchaseCard from "@/components/shared/TicketPurchaseCard";
+import { getTicketPurchaseDetailsByUser } from "@/lib/api";
+import { Paginated, TicketPurchaseDetail } from "@/types";
+import TicketPurchaseCard from "@/components/shared/TicketPurchaseCard"; // <<< Component mới sẽ được tạo ở dưới
 import PaginationControls from "@/components/shared/PaginationControls";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
@@ -14,12 +14,23 @@ import { Ticket as TicketIcon, ServerCrash } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
 function MyTicketsSkeleton() {
+  // ... (giữ nguyên skeleton của bạn, nó đã tốt)
   return (
     <div className="space-y-6">
       {[...Array(3)].map((_, i) => (
-        <Skeleton key={i} className="h-40 w-full rounded-lg dark:bg-gray-700" />
+        <div
+          key={i}
+          className="flex flex-col sm:flex-row gap-4 p-4 border rounded-lg dark:border-gray-700"
+        >
+          <Skeleton className="w-full sm:w-40 h-24 sm:h-32 rounded-md" />
+          <div className="flex-grow space-y-3">
+            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        </div>
       ))}
-      <Skeleton className="h-10 w-64 mx-auto mt-10 dark:bg-gray-700" />
     </div>
   );
 }
@@ -30,7 +41,9 @@ function MyTicketsPageContent() {
   const currentPage = Number(searchParams.get("page") || "1");
   const itemsPerPage = 5;
 
-  const [data, setData] = useState<Paginated<TicketPurchase> | null>(null);
+  const [data, setData] = useState<Paginated<TicketPurchaseDetail> | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,15 +56,17 @@ function MyTicketsPageContent() {
       setError(null);
       setIsLoading(true);
       try {
-        const pageData = await getTicketPurchasesByUser(user.id, {
+        const pageData = await getTicketPurchaseDetailsByUser(user.id, {
           page: currentPage - 1,
           size: itemsPerPage,
         });
         setData(pageData);
       } catch (err: unknown) {
-        let msg = "Không thể tải danh sách vé của bạn.";
-        if (err instanceof Error) msg = err.message;
-        setError(msg);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Không thể tải danh sách vé của bạn."
+        );
       } finally {
         setIsLoading(false);
       }
@@ -60,25 +75,22 @@ function MyTicketsPageContent() {
   }, [user, currentPage]);
 
   return (
-    <div className="container mx-auto px-4 py-8 md:py-12 text-gray-900 dark:text-gray-100">
-      <h1 className="mb-8 text-3xl font-bold flex items-center gap-3 text-gray-900 dark:text-white">
-        <TicketIcon className="h-8 w-8 text-gray-600 dark:text-gray-300" /> Vé
-        của tôi
+    <div className="container mx-auto px-4 py-8 md:py-12">
+      <h1 className="mb-8 text-3xl font-bold flex items-center gap-3">
+        <TicketIcon className="h-8 w-8 text-primary" /> Vé của tôi
       </h1>
 
-      {isLoading ? (
-        <MyTicketsSkeleton />
-      ) : error ? (
-        <Alert variant="destructive" className="dark:bg-gray-800">
-          <ServerCrash className="h-4 w-4 text-destructive-foreground dark:text-destructive" />
-          <AlertTitle className="text-destructive-foreground dark:text-destructive-foreground">
-            Lỗi tải dữ liệu
-          </AlertTitle>
-          <AlertDescription className="dark:text-destructive-foreground">
-            {error}
-          </AlertDescription>
+      {isLoading && <MyTicketsSkeleton />}
+
+      {error && (
+        <Alert variant="destructive">
+          <ServerCrash className="h-4 w-4" />
+          <AlertTitle>Lỗi tải dữ liệu</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
-      ) : data ? (
+      )}
+
+      {!isLoading && !error && data && (
         <>
           {data.content.length > 0 ? (
             <div className="space-y-6">
@@ -87,12 +99,12 @@ function MyTicketsPageContent() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-16 border border-gray-200 dark:border-gray-700 rounded-lg bg-muted/30 dark:bg-muted/30">
-              <TicketIcon className="h-16 w-16 text-muted-foreground dark:text-muted-foreground mb-4" />
-              <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">
+            <div className="text-center py-16 border-2 border-dashed rounded-lg">
+              <TicketIcon className="mx-auto h-16 w-16 text-muted-foreground" />
+              <h2 className="mt-4 text-xl font-semibold">
                 Bạn chưa mua vé nào
               </h2>
-              <p className="text-muted-foreground dark:text-muted-foreground">
+              <p className="mt-2 text-muted-foreground">
                 Hãy khám phá các sự kiện và mua vé ngay!
               </p>
             </div>
@@ -107,15 +119,20 @@ function MyTicketsPageContent() {
             </div>
           )}
         </>
-      ) : null}
+      )}
     </div>
   );
 }
 
-export default function MyTicketsPage() {
+// Component Page bọc bởi Suspense và ProtectedRoute
+function MyTicketsPage() {
   return (
     <ProtectedRoute>
-      <MyTicketsPageContent />
+      <Suspense fallback={<MyTicketsSkeleton />}>
+        <MyTicketsPageContent />
+      </Suspense>
     </ProtectedRoute>
   );
 }
+
+export default MyTicketsPage;

@@ -3,7 +3,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
-import { Badge, CalendarDays, MapPin } from "lucide-react";
+// FIX 2: Import Badge từ UI library, không phải từ icon library
+import { Badge } from "@/components/ui/badge";
+import { CalendarDays, MapPin } from "lucide-react";
 import { Event } from "@/types";
 import { formatDateTime } from "@/lib/utils";
 
@@ -12,6 +14,7 @@ interface EventCardProps {
   className?: string;
 }
 
+// Giả sử các status này khớp với dữ liệu từ bảng status_codes trong DB
 enum EventStatus {
   UPCOMING = "UPCOMING",
   ONGOING = "ONGOING",
@@ -37,13 +40,15 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
   const { date: formattedDate, time: formattedTime } = formatDateTime(
     event.startDate
   );
-  const status = event.status
-    ? statusMap[event.status.status as EventStatus]
-    : null;
+
+  // Kiểm tra an toàn hơn, phòng trường hợp event.status không tồn tại
+  const eventStatusKey = event.status?.status as EventStatus | undefined;
+  const status = eventStatusKey ? statusMap[eventStatusKey] : null;
 
   return (
-    <Link href={`/events/${event.id}`} className="block group">
-      <Card className="overflow-hidden transition-all hover:shadow-lg group-hover:scale-[1.02] bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700">
+    // IMPROVEMENT 3: Sử dụng slug cho URL, dự phòng bằng id
+    <Link href={`/events/${event.slug || event.id}`} className="block group">
+      <Card className="flex flex-col h-full overflow-hidden transition-all duration-300 border border-gray-200 rounded-lg shadow-sm dark:border-gray-700 dark:bg-card hover:shadow-xl group-hover:scale-[1.02]">
         <CardHeader className="relative p-0">
           <AspectRatio ratio={16 / 9}>
             <Image
@@ -55,24 +60,24 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
             />
           </AspectRatio>
           {status && (
-            <div className="absolute top-2 left-2">
-              <span
-                className={`text-xs text-white px-2 py-1 rounded ${status.color}`}
-              >
-                {status.label}
-              </span>
+            <div
+              className="absolute px-2 py-1 text-xs font-semibold text-white rounded-md top-3 left-3"
+              style={{ backgroundColor: status.color }}
+            >
+              {status.label}
             </div>
           )}
         </CardHeader>
 
-        <CardContent className="p-4 space-y-2">
-          {/* Sửa lại phần hiển thị category để hỗ trợ nhiều category */}
+        <CardContent className="flex flex-col flex-grow p-4 space-y-3">
           {event.categories && event.categories.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {event.categories.map((cate) => (
+                // FIX 2: Sử dụng variant của component Badge
                 <Badge
                   key={cate.id}
-                  className="dark:border-gray-600 dark:text-gray-100"
+                  variant="secondary"
+                  className="font-medium"
                 >
                   {cate.name}
                 </Badge>
@@ -80,20 +85,25 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
             </div>
           )}
 
-          <CardTitle className="text-lg font-semibold leading-tight text-gray-900 dark:text-white group-hover:text-primary dark:group-hover:text-primary">
+          <CardTitle className="flex-grow text-lg font-bold leading-tight text-gray-900 transition-colors dark:text-white group-hover:text-primary dark:group-hover:text-primary-light">
             {event.title}
           </CardTitle>
 
-          <div className="flex items-center text-sm text-muted-foreground dark:text-muted-foreground gap-1.5">
-            <CalendarDays className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-            <span>
-              {formattedDate} {formattedTime && `- ${formattedTime}`}
-            </span>
-          </div>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-4 h-4" />
+              <span>
+                {formattedDate} {formattedTime && `• ${formattedTime}`}
+              </span>
+            </div>
 
-          <div className="flex items-center text-sm text-muted-foreground dark:text-muted-foreground gap-1.5">
-            <MapPin className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-            <span>{event.location}</span>
+            {/* FIX 1: Sử dụng event.venue.name thay vì event.location */}
+            {event.venue && (
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4" />
+                <span className="truncate">{event.venue.name}</span>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

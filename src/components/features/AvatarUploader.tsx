@@ -15,11 +15,15 @@ import { toBlob } from "@/lib/utils";
 const ACCEPTED_TYPES = ["image/jpeg", "image/png"];
 const MAX_SIZE = 2 * 1024 * 1024; // 2MB
 
+interface AvatarUploaderProps {
+  onSave: (blob: Blob) => Promise<void>;
+  disabled?: boolean; // Cho phép component cha vô hiệu hóa nút này
+}
+
 export default function AvatarUploader({
   onSave,
-}: {
-  onSave: (blob: Blob) => Promise<void>;
-}) {
+  disabled = false,
+}: AvatarUploaderProps) {
   const [open, setOpen] = useState(false);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -99,15 +103,16 @@ export default function AvatarUploader({
           accept="image/jpeg,image/png"
           className="hidden"
           onChange={onFileChange}
-          disabled={saving}
+          disabled={disabled || saving}
         />
         <label htmlFor="avatar-upload">
           <Button
             variant="outline"
             size="sm"
-            asChild
+            onClick={() => fileInputRef.current?.click()}
             className="dark:border-gray-600 dark:text-gray-100"
-            disabled={saving}
+            disabled={disabled || saving}
+            aria-label="Cập nhật ảnh đại diện"
           >
             <span>{saving ? "Đang tải..." : "Cập nhật ảnh đại diện"}</span>
           </Button>
