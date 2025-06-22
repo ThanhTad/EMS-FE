@@ -1,14 +1,20 @@
-// custom hook cho flow 2FA
 import {
-  OtpType,
-  ApiResponse,
-  ResetPasswordVerificationResponse,
-  SentOtpRequest,
-  AuthResponse,
+  // Types cho request
   Enable2FARequest,
   Disable2FARequest,
+  SentOtpRequest,
+  ResendOtpRequest,
+  VerifyOtpRequest,
+
+  // Types cho response
+  AuthResponse,
+  ResetPasswordVerificationResponse,
+
+  // Enum
+  OtpType,
 } from "@/types";
 import {
+  // Các hàm API tương ứng
   enable2FAAPI,
   disable2FAAPI,
   sendOtpToDisable2FAAPI,
@@ -19,72 +25,69 @@ import {
   sendOtpToEnable2FAAPI,
 } from "@/lib/api";
 
+// SỬ DỤNG FUNCTION OVERLOADS ĐỂ GỘP 3 HÀM `verify` LẠI MÀ VẪN TYPE-SAFE
+// Overload 1: Cho flow đăng nhập 2FA
+function verifyOtp(
+  request: VerifyOtpRequest & { otpType: OtpType.TWO_FACTOR_AUTH_LOGIN }
+): Promise<AuthResponse>;
+
+// Overload 2: Cho flow reset mật khẩu
+function verifyOtp(
+  request: VerifyOtpRequest & { otpType: OtpType.PASSWORD_RESET }
+): Promise<ResetPasswordVerificationResponse>;
+
+// Overload 3: Cho flow xác thực email
+function verifyOtp(
+  request: VerifyOtpRequest & { otpType: OtpType.EMAIL_VERIFICATION }
+): Promise<void>;
+
+// Function triển khai thực tế
+function verifyOtp(
+  request: VerifyOtpRequest
+): Promise<AuthResponse | ResetPasswordVerificationResponse | void> {
+  switch (request.otpType) {
+    case OtpType.TWO_FACTOR_AUTH_LOGIN:
+      return verify2FAAPI(request);
+
+    case OtpType.PASSWORD_RESET:
+      return verifyPasswordResetOtpAPI(request);
+
+    case OtpType.EMAIL_VERIFICATION:
+      // Giả sử verifyEmailOtpAPI trả về Promise<void> sau khi unwrap
+      return verifyEmailOtpAPI(request).then(() => {});
+
+    default:
+      // Xử lý trường hợp không mong muốn
+      return Promise.reject(new Error("Invalid OTP type provided."));
+  }
+}
+
 export function useTwoFactor() {
-  // Gửi OTP để bật 2FA (cần thêm endpoint này)
+  // Các hàm này đã tốt, giữ nguyên vì chúng có mục đích rõ ràng
   const sendOtpToEnable2FA = (request: SentOtpRequest) =>
     sendOtpToEnable2FAAPI(request);
 
-  // Bật 2FA (gửi OTP enable)
   const enableTwoFactor = (request: Enable2FARequest) => enable2FAAPI(request);
 
-  // Gửi OTP để tắt 2FA
   const sendOtpToDisable2FA = (request: SentOtpRequest) =>
     sendOtpToDisable2FAAPI(request);
 
-  // Tắt 2FA (xác thực OTP disable)
   const disableTwoFactor = (request: Disable2FARequest) =>
     disable2FAAPI(request);
 
-  // Xác thực 2FA OTP sau khi login thành công (cần Authorization header)
-  const verifyTwoFactor = (
-    identifier: string,
-    otp: string,
-    challengeToken: string // temp token từ login response
-  ): Promise<ApiResponse<AuthResponse>> =>
-    verify2FAAPI({
-      identifier,
-      otp,
-      otpType: OtpType.TWO_FACTOR_AUTH_LOGIN,
-      challengeToken,
-    });
-
-  // Xác thực OTP reset password
-  const verifyPasswordResetOtp = (
-    identifier: string,
-    otp: string
-  ): Promise<ResetPasswordVerificationResponse> =>
-    verifyPasswordResetOtpAPI({
-      identifier,
-      otp,
-      otpType: OtpType.PASSWORD_RESET,
-    });
-
-  // Xác thực OTP verify email
-  const verifyEmailOtp = (
-    identifier: string,
-    otp: string
-  ): Promise<ApiResponse<void>> =>
-    verifyEmailOtpAPI({
-      identifier,
-      otp,
-      otpType: OtpType.EMAIL_VERIFICATION,
-    });
-
-  // Gửi lại OTP cho mọi flow
-  const resendOtp = (
-    identifier: string,   
-    otpType: OtpType,
-    challengeToken?: string
-  ) => resendOtpAPI({ identifier, otpType, challengeToken });
+  // Cải thiện: Nhận một object duy nhất để nhất quán
+  const resendOtp = (request: ResendOtpRequest) => resendOtpAPI(request);
 
   return {
     sendOtpToEnable2FA,
     enableTwoFactor,
-    disableTwoFactor,
     sendOtpToDisable2FA,
-    verifyTwoFactor, // cho 2FA login
-    verifyPasswordResetOtp, // cho reset password
-    verifyEmailOtp, // cho verify email
+    disableTwoFactor,
+
+    // Hàm mới, gộp lại và type-safe hơn
+    verifyOtp,
+
+    // Hàm này cũng được cải thiện để nhất quán hơn
     resendOtp,
   };
 }

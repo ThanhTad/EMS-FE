@@ -178,6 +178,7 @@ export const uploadAvatar = (file: Blob): Promise<{ url: string }> => {
 export const getVenues = (params: {
   page?: number;
   size?: number;
+  keyword?: string;
   sort?: string;
 }): Promise<Paginated<Venue>> =>
   API.get<ApiResponse<Paginated<Venue>>>("/api/v1/venues", { params }).then(
