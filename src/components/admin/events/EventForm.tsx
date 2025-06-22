@@ -1,11 +1,12 @@
 // components/admin/events/EventForm.tsx
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Event, UserRole } from "@/types";
+import { Event, UserRole, TicketSelectionModeEnum, SeatMap } from "@/types";
+import { getSeatMapsByVenue } from "@/lib/api"; // <-- GIẢ SỬ BẠN CÓ API NÀY
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,7 +27,9 @@ import {
   CalendarCheck2,
 } from "lucide-react";
 import Link from "next/link";
+import { Checkbox } from "@/components/ui/checkbox";
 
+// Define option types for props
 interface CategoryOption {
   id: string;
   name: string;
@@ -37,20 +40,49 @@ interface ModeratorOption {
   username: string;
 }
 
-const baseEventSchema = z.object({
-  title: z.string().min(3, "Tiêu đề phải có ít nhất 3 ký tự.").max(200),
-  description: z.string().max(500).default(""),
-  location: z.string().max(200).default(""),
-  startDate: z.string().min(1, "Chọn thời gian bắt đầu"),
-  endDate: z.string().min(1, "Chọn thời gian kết thúc"),
-  categoryIds: z
-    .array(z.string().min(1))
-    .min(1, "Bắt buộc chọn ít nhất 1 danh mục"),
-  creatorId: z.string().min(1, "Bắt buộc chọn người tạo"),
-  isPublic: z.boolean(),
-});
+interface VenueOption {
+  id: string;
+  name: string;
+}
 
-type EventFormValues = z.infer<typeof baseEventSchema>;
+// Zod schema with conditional validation for seatMapId
+const eventFormSchema = z
+  .object({
+    title: z.string().min(3, "Tiêu đề phải có ít nhất 3 ký tự.").max(200),
+    description: z.string().max(5000).optional(), // Increased limit, optional
+    startDate: z.string().min(1, "Bắt buộc chọn thời gian bắt đầu"),
+    endDate: z.string().min(1, "Bắt buộc chọn thời gian kết thúc"),
+    categoryIds: z.array(z.string()).min(1, "Bắt buộc chọn ít nhất 1 danh mục"),
+    creatorId: z.string().min(1, "Bắt buộc chọn người tạo"),
+    isPublic: z.boolean(),
+    ticketSelectionMode: z.nativeEnum(TicketSelectionModeEnum, {
+      errorMap: () => ({ message: "Bắt buộc chọn chế độ chọn vé." }),
+    }),
+    venueId: z.string().min(1, "Bắt buộc chọn địa điểm"),
+    seatMapId: z.string().optional(),
+    coverImageUrl: z
+      .string()
+      .url("URL ảnh không hợp lệ")
+      .optional()
+      .or(z.literal("")),
+  })
+  .refine((data) => new Date(data.endDate) > new Date(data.startDate), {
+    message: "Thời gian kết thúc phải sau thời gian bắt đầu.",
+    path: ["endDate"],
+  })
+  .superRefine((data, ctx) => {
+    if (data.ticketSelectionMode === TicketSelectionModeEnum.SEATED) {
+      if (!data.seatMapId || data.seatMapId.trim() === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Bắt buộc chọn sơ đồ chỗ ngồi cho sự kiện có chỗ ngồi.",
+          path: ["seatMapId"],
+        });
+      }
+    }
+  });
+
+type EventFormValues = z.infer<typeof eventFormSchema>;
 
 interface EventFormProps {
   initialData?: Event | null;
@@ -61,9 +93,11 @@ interface EventFormProps {
   currentUserId: string;
   currentUsername: string;
   currentUserRole: UserRole;
-  moderatorOptions?: ModeratorOption[]; // Chỉ truyền nếu là ADMIN
-  creatorName?: string; // Để hiển thị khi sửa event
+  moderatorOptions?: ModeratorOption[];
+  creatorName?: string;
   defaultIsPublic?: boolean;
+  ticketSelectionModes: { value: TicketSelectionModeEnum; label: string }[];
+  venueOptions: VenueOption[];
 }
 
 const EventForm: React.FC<EventFormProps> = ({
@@ -78,128 +112,146 @@ const EventForm: React.FC<EventFormProps> = ({
   moderatorOptions = [],
   creatorName,
   defaultIsPublic,
+  ticketSelectionModes,
+  venueOptions,
 }) => {
-  // Xác định giá trị mặc định cho creatorId
-  const defaultCreatorId =
-    isEditMode && initialData?.organizer
-      ? initialData.organizer.id
-      : currentUserId;
+  const [seatMapOptions, setSeatMapOptions] = useState<SeatMap[]>([]);
+  const [isSeatMapsLoading, setIsSeatMapsLoading] = useState(false);
 
-  const form = useForm({
-    resolver: zodResolver(baseEventSchema),
+  const form = useForm<EventFormValues>({
+    resolver: zodResolver(eventFormSchema),
     defaultValues: {
-      title: initialData?.title || "",
-      description: initialData?.description || "",
-      location: initialData?.location || "",
-      startDate: initialData?.startDate
-        ? initialData.startDate.slice(0, 16)
-        : "",
-      endDate: initialData?.endDate ? initialData.endDate.slice(0, 16) : "",
-      categoryIds: initialData?.categories
-        ? initialData.categories.map((cat) => cat.id)
-        : [],
-      creatorId: defaultCreatorId,
-      isPublic:
-        typeof initialData?.isPublic === "boolean"
-          ? initialData.isPublic
-          : typeof defaultIsPublic === "boolean"
-          ? defaultIsPublic
-          : false,
+      title: "",
+      description: "",
+      startDate: "",
+      endDate: "",
+      categoryIds: [],
+      creatorId: currentUserId,
+      isPublic: defaultIsPublic ?? false,
+      ticketSelectionMode:
+        ticketSelectionModes[0]?.value ||
+        TicketSelectionModeEnum.GENERAL_ADMISSION,
+      venueId: "",
+      seatMapId: "",
+      coverImageUrl: "",
     },
   });
 
+  // Watch for changes in relevant form fields
+  const selectedVenueId = form.watch("venueId");
+  const selectedMode = form.watch("ticketSelectionMode");
+
   useEffect(() => {
-    if (isEditMode && initialData) {
+    if (initialData) {
       form.reset({
-        title: initialData.title,
+        title: initialData.title || "",
         description: initialData.description || "",
-        location: initialData.location || "",
         startDate: initialData.startDate
           ? initialData.startDate.slice(0, 16)
           : "",
         endDate: initialData.endDate ? initialData.endDate.slice(0, 16) : "",
-        categoryIds: initialData.categories
-          ? initialData.categories.map((cat) => cat.id)
-          : [],
-        creatorId:
-          isEditMode && initialData.organizer
-            ? initialData.organizer.id
-            : currentUserId,
-        isPublic:
-          typeof initialData.isPublic === "boolean"
-            ? initialData.isPublic
-            : typeof defaultIsPublic === "boolean"
-            ? defaultIsPublic
-            : false,
+        categoryIds: initialData.categories?.map((cat) => cat.id) || [],
+        creatorId: initialData.creator?.id || currentUserId,
+        isPublic: initialData.isPublic ?? defaultIsPublic ?? false,
+        ticketSelectionMode: initialData.ticketSelectionMode,
+        venueId: initialData.venueId || "",
+        seatMapId: initialData.seatMapId || "",
+        coverImageUrl: initialData.coverImageUrl || "",
       });
     }
-  }, [initialData, isEditMode, form, currentUserId, defaultIsPublic]);
+  }, [initialData, form, currentUserId, defaultIsPublic]);
 
-  const startDate = form.watch("startDate");
-  const endDate = form.watch("endDate");
-  const timeInvalid =
-    startDate && endDate && new Date(endDate) <= new Date(startDate);
-
-  const handleFormSubmit = async (values: EventFormValues) => {
-    if (timeInvalid) {
-      toast.error("Thời gian kết thúc phải sau thời gian bắt đầu!");
+  // Effect to fetch seat maps when venue or mode changes
+  useEffect(() => {
+    // Don't clear seatMapId if we are in edit mode and the options haven't loaded yet
+    if (selectedMode !== TicketSelectionModeEnum.SEATED) {
+      setSeatMapOptions([]);
+      if (form.getValues("seatMapId")) {
+        form.setValue("seatMapId", "");
+      }
       return;
     }
+
+    let isMounted = true;
+    if (selectedVenueId) {
+      const fetchSeatMaps = async () => {
+        setIsSeatMapsLoading(true);
+        try {
+          const paginatedResult = await getSeatMapsByVenue(selectedVenueId, {
+            size: 100,
+          });
+          if (isMounted) {
+            setSeatMapOptions(paginatedResult.content);
+          }
+        } catch (error) {
+          if (error) toast.error("Không thể tải danh sách sơ đồ chỗ ngồi.");
+          if (isMounted) {
+            setSeatMapOptions([]);
+          }
+        } finally {
+          if (isMounted) {
+            setIsSeatMapsLoading(false);
+          }
+        }
+      };
+      fetchSeatMaps();
+    } else {
+      setSeatMapOptions([]);
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedVenueId, selectedMode, form]);
+
+  const handleFormSubmit = async (values: EventFormValues) => {
     try {
       await onSubmit(values);
     } catch (error) {
-      if (error instanceof Error) {
-        toast.error(error.message || "Đã xảy ra lỗi. Vui lòng thử lại!");
-      } else {
-        toast.error("Đã xảy ra lỗi không xác định. Vui lòng thử lại!");
-      }
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Đã xảy ra lỗi không xác định.";
+      toast.error(errorMessage);
     }
   };
 
-  // Xác định hiển thị phần chọn người tạo
-  let creatorField = null;
-  if (isEditMode) {
-    // Chế độ sửa: chỉ hiển thị tên người tạo, hidden input cho id
-    creatorField = (
-      <div className="space-y-2">
-        <Label>Người tạo</Label>
-        <Input value={creatorName || currentUsername} readOnly disabled />
-        <input
-          type="hidden"
-          {...form.register("creatorId")}
-          value={defaultCreatorId}
-        />
-      </div>
-    );
-  } else if (currentUserRole === "ROLE_ADMIN") {
-    // ADMIN: chọn moderator
-    creatorField = (
-      <div className="space-y-2">
-        <Label htmlFor="creatorId">Người tạo (Moderator)</Label>
-        <select
-          id="creatorId"
-          {...form.register("creatorId")}
-          className="w-full border rounded px-2 py-2"
-          disabled={isLoading}
-          aria-invalid={!!form.formState.errors.creatorId}
-        >
-          <option value="">-- Chọn Organizer --</option>
-          {moderatorOptions.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.username}
-            </option>
-          ))}
-        </select>
-        {form.formState.errors.creatorId && (
-          <p className="text-xs text-red-600 mt-1">
-            {form.formState.errors.creatorId.message}
-          </p>
-        )}
-      </div>
-    );
-  } else {
-    // MODERATOR: ẩn input, chỉ show tên mình
-    creatorField = (
+  // Logic to render creator field based on role
+  const renderCreatorField = () => {
+    if (isEditMode) {
+      return (
+        <div className="space-y-2">
+          <Label>Người tạo</Label>
+          <Input value={creatorName || currentUsername} readOnly disabled />
+        </div>
+      );
+    }
+    if (currentUserRole === UserRole.ADMIN) {
+      return (
+        <div className="space-y-2">
+          <Label htmlFor="creatorId">Gán cho Organizer</Label>
+          <select
+            id="creatorId"
+            {...form.register("creatorId")}
+            className="w-full border rounded px-2 py-2"
+            disabled={isLoading}
+          >
+            <option value="">-- Chọn Organizer --</option>
+            {moderatorOptions.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.username}
+              </option>
+            ))}
+          </select>
+          {form.formState.errors.creatorId && (
+            <p className="text-xs text-red-600 mt-1">
+              {form.formState.errors.creatorId.message}
+            </p>
+          )}
+        </div>
+      );
+    }
+    return (
       <div className="space-y-2">
         <Label>Người tạo</Label>
         <Input value={currentUsername} readOnly disabled />
@@ -210,147 +262,110 @@ const EventForm: React.FC<EventFormProps> = ({
         />
       </div>
     );
-  }
-
-  // Danh mục nhiều chọn (multi-select)
-  const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedOptions = Array.from(e.target.selectedOptions).map(
-      (opt) => opt.value
-    );
-    form.setValue("categoryIds", selectedOptions, { shouldValidate: true });
   };
 
-  const selectedCategoryIds = form.watch("categoryIds") ?? [];
-
   return (
-    <Card
-      className="w-full max-w-2xl mx-auto"
-      aria-labelledby="event-form-title"
-    >
-      <form
-        onSubmit={form.handleSubmit(handleFormSubmit)}
-        aria-describedby="event-form-desc"
-      >
+    <Card className="w-full max-w-3xl mx-auto">
+      <form onSubmit={form.handleSubmit(handleFormSubmit)}>
         <CardHeader>
-          <CardTitle
-            id="event-form-title"
-            className="text-2xl flex items-center gap-2"
-          >
+          <CardTitle className="text-2xl flex items-center gap-2">
             {isEditMode ? (
-              <CalendarCheck2 className="h-6 w-6" aria-hidden="true" />
+              <CalendarCheck2 className="h-6 w-6" />
             ) : (
-              <PlusCircle className="h-6 w-6" aria-hidden="true" />
+              <PlusCircle className="h-6 w-6" />
             )}
             {isEditMode
               ? `Sửa sự kiện: ${initialData?.title || ""}`
               : "Thêm sự kiện mới"}
           </CardTitle>
-          <CardDescription id="event-form-desc">
-            {isEditMode
-              ? "Cập nhật thông tin chi tiết cho sự kiện này."
-              : "Điền thông tin để tạo sự kiện mới."}
+          <CardDescription>
+            Điền đầy đủ các thông tin cần thiết. Các trường có dấu * là bắt
+            buộc.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Title */}
           <div className="space-y-2">
-            <Label htmlFor="title">Tiêu đề sự kiện</Label>
+            <Label htmlFor="title">Tiêu đề sự kiện *</Label>
             <Input
               id="title"
-              placeholder="Nhập tiêu đề"
-              required
+              placeholder="VD: Đêm nhạc Trịnh Công Sơn"
               {...form.register("title")}
               disabled={isLoading}
-              aria-invalid={!!form.formState.errors.title}
-              aria-describedby={
-                form.formState.errors.title ? "title-error" : undefined
-              }
-              tabIndex={0}
             />
             {form.formState.errors.title && (
-              <p
-                className="text-xs text-red-600"
-                id="title-error"
-                role="alert"
-                aria-live="polite"
-              >
+              <p className="text-xs text-red-600 mt-1">
                 {form.formState.errors.title.message}
               </p>
             )}
           </div>
+
           {/* Description */}
           <div className="space-y-2">
-            <Label htmlFor="description">Mô tả</Label>
-            <Input
+            <Label htmlFor="description">Mô tả chi tiết</Label>
+            <textarea
               id="description"
-              placeholder="Nhập mô tả"
+              placeholder="Giới thiệu về sự kiện, nghệ sĩ, lịch trình..."
               {...form.register("description")}
               disabled={isLoading}
-              aria-invalid={!!form.formState.errors.description}
-              aria-describedby={
-                form.formState.errors.description
-                  ? "description-error"
-                  : undefined
-              }
-              tabIndex={0}
+              className="w-full border rounded px-2 py-2 min-h-[120px]"
             />
             {form.formState.errors.description && (
-              <p
-                className="text-xs text-red-600"
-                id="description-error"
-                role="alert"
-                aria-live="polite"
-              >
+              <p className="text-xs text-red-600 mt-1">
                 {form.formState.errors.description.message}
               </p>
             )}
           </div>
-          {/* Location */}
+
+          {/* Cover Image URL */}
           <div className="space-y-2">
-            <Label htmlFor="location">Địa điểm</Label>
+            <Label htmlFor="coverImageUrl">URL Ảnh bìa</Label>
             <Input
-              id="location"
-              placeholder="Nhập địa điểm"
-              {...form.register("location")}
+              id="coverImageUrl"
+              placeholder="https://example.com/image.png"
+              {...form.register("coverImageUrl")}
               disabled={isLoading}
-              aria-invalid={!!form.formState.errors.location}
-              aria-describedby={
-                form.formState.errors.location ? "location-error" : undefined
-              }
-              tabIndex={0}
             />
-            {form.formState.errors.location && (
-              <p
-                className="text-xs text-red-600"
-                id="location-error"
-                role="alert"
-                aria-live="polite"
-              >
-                {form.formState.errors.location.message}
+            {form.formState.errors.coverImageUrl && (
+              <p className="text-xs text-red-600 mt-1">
+                {form.formState.errors.coverImageUrl.message}
               </p>
             )}
           </div>
-          {/* Category - Multi select */}
+
+          {/* Categories */}
           <div className="space-y-2">
-            <Label htmlFor="categoryIds">Danh mục</Label>
-            <select
-              id="categoryIds"
-              multiple
-              value={selectedCategoryIds}
-              onChange={handleCategoryChange}
-              disabled={isLoading}
-              className="w-full border rounded px-2 py-2"
-              aria-invalid={!!form.formState.errors.categoryIds}
-              size={Math.min(5, categoryOptions.length)}
-            >
-              {categoryOptions.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
+            <Label htmlFor="categoryIds">Danh mục *</Label>
+            <Controller
+              name="categoryIds"
+              control={form.control}
+              render={({ field }) => (
+                <select
+                  id="categoryIds"
+                  multiple
+                  value={field.value}
+                  onChange={(e) =>
+                    field.onChange(
+                      Array.from(
+                        e.target.selectedOptions,
+                        (option) => option.value
+                      )
+                    )
+                  }
+                  disabled={isLoading}
+                  className="w-full border rounded px-2 py-2"
+                  size={Math.min(5, categoryOptions.length || 1)}
+                >
+                  {categoryOptions.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            />
             <p className="text-xs text-muted-foreground">
-              Giữ Ctrl (Windows) hoặc Cmd (Mac) để chọn nhiều danh mục.
+              Giữ Ctrl (hoặc Cmd trên Mac) để chọn nhiều danh mục.
             </p>
             {form.formState.errors.categoryIds && (
               <p className="text-xs text-red-600 mt-1">
@@ -358,107 +373,158 @@ const EventForm: React.FC<EventFormProps> = ({
               </p>
             )}
           </div>
+
           {/* Creator */}
-          {creatorField}
-          {/* Start/End time */}
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <Label htmlFor="startDate">Bắt đầu</Label>
+          {renderCreatorField()}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Ticket Selection Mode */}
+            <div className="space-y-2">
+              <Label htmlFor="ticketSelectionMode">Chế độ bán vé *</Label>
+              <select
+                id="ticketSelectionMode"
+                {...form.register("ticketSelectionMode")}
+                className="w-full border rounded px-2 py-2"
+                disabled={isLoading}
+              >
+                {ticketSelectionModes.map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
+              {form.formState.errors.ticketSelectionMode && (
+                <p className="text-xs text-red-600 mt-1">
+                  {form.formState.errors.ticketSelectionMode.message}
+                </p>
+              )}
+            </div>
+
+            {/* Venue */}
+            <div className="space-y-2">
+              <Label htmlFor="venueId">Địa điểm tổ chức *</Label>
+              <select
+                id="venueId"
+                {...form.register("venueId")}
+                className="w-full border rounded px-2 py-2"
+                disabled={isLoading}
+              >
+                <option value="">-- Chọn địa điểm --</option>
+                {venueOptions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+              {form.formState.errors.venueId && (
+                <p className="text-xs text-red-600 mt-1">
+                  {form.formState.errors.venueId.message}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Seat Map (Conditional) */}
+          {selectedMode === TicketSelectionModeEnum.SEATED && (
+            <div className="space-y-2">
+              <Label htmlFor="seatMapId">Sơ đồ chỗ ngồi *</Label>
+              <select
+                id="seatMapId"
+                {...form.register("seatMapId")}
+                className="w-full border rounded px-2 py-2"
+                disabled={isLoading || isSeatMapsLoading || !selectedVenueId}
+              >
+                <option value="">
+                  {isSeatMapsLoading
+                    ? "Đang tải sơ đồ..."
+                    : "-- Chọn sơ đồ chỗ ngồi --"}
+                </option>
+                {seatMapOptions.map((sm) => (
+                  <option key={sm.id} value={sm.id}>
+                    {sm.name}
+                  </option>
+                ))}
+              </select>
+              {form.formState.errors.seatMapId && (
+                <p className="text-xs text-red-600 mt-1">
+                  {form.formState.errors.seatMapId.message}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Start/End time & isPublic */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            <div className="space-y-2">
+              <Label htmlFor="startDate">Thời gian bắt đầu *</Label>
               <Input
                 id="startDate"
                 type="datetime-local"
                 {...form.register("startDate")}
                 disabled={isLoading}
-                aria-invalid={!!form.formState.errors.startDate}
-                aria-describedby={
-                  form.formState.errors.startDate
-                    ? "startDate-error"
-                    : undefined
-                }
-                tabIndex={0}
               />
               {form.formState.errors.startDate && (
-                <p className="text-xs text-red-600 mt-1" id="startDate-error">
+                <p className="text-xs text-red-600 mt-1">
                   {form.formState.errors.startDate.message}
                 </p>
               )}
             </div>
-            <div className="flex-1">
-              <Label htmlFor="endDate">Kết thúc</Label>
+            <div className="space-y-2">
+              <Label htmlFor="endDate">Thời gian kết thúc *</Label>
               <Input
                 id="endDate"
                 type="datetime-local"
                 {...form.register("endDate")}
                 disabled={isLoading}
-                aria-invalid={!!form.formState.errors.endDate}
-                aria-describedby={
-                  form.formState.errors.endDate ? "endDate-error" : undefined
-                }
-                tabIndex={0}
               />
               {form.formState.errors.endDate && (
-                <p className="text-xs text-red-600 mt-1" id="endDate-error">
+                <p className="text-xs text-red-600 mt-1">
                   {form.formState.errors.endDate.message}
                 </p>
               )}
-              {timeInvalid && (
-                <p className="text-xs text-red-600 mt-1">
-                  Thời gian kết thúc phải sau thời gian bắt đầu!
-                </p>
-              )}
             </div>
-            <Controller
-              control={form.control}
-              name="isPublic"
-              render={({ field: { value, onChange, ...field } }) => (
-                <div className="space-y-2">
-                  <Label htmlFor="isPublic">Công khai sự kiện?</Label>
-                  <input
-                    type="checkbox"
-                    id="isPublic"
-                    checked={!!value}
-                    onChange={(e) => onChange(e.target.checked)}
-                    className="h-4 w-4"
-                    disabled={isLoading}
-                    {...field}
-                  />
-                </div>
-              )}
-            />
           </div>
+
+          {/* isPublic Checkbox */}
+          <Controller
+            control={form.control}
+            name="isPublic"
+            render={({ field }) => (
+              <div className="flex items-center space-x-2 pt-4">
+                <Checkbox
+                  id="isPublic"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={isLoading}
+                />
+                <Label htmlFor="isPublic" className="font-normal">
+                  Sự kiện riêng tư (Chỉ có thể truy cập qua link, không hiển thị
+                  trên trang khám phá)
+                </Label>
+              </div>
+            )}
+          />
+          <p className="text-xs text-muted-foreground -mt-4">
+            Lưu ý: Sự kiện vẫn cần được quản trị viên duyệt trước khi có thể bán
+            vé, kể cả khi là sự kiện riêng tư.
+          </p>
         </CardContent>
         <CardFooter className="flex justify-between">
-          <Button
-            variant="outline"
-            asChild
-            type="button"
-            tabIndex={0}
-            aria-disabled={isLoading}
-            disabled={isLoading}
-          >
+          <Button variant="outline" asChild type="button" disabled={isLoading}>
             <Link href="/admin/events">
-              <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" /> Quay lại
+              <ArrowLeft className="mr-2 h-4 w-4" /> Quay lại
             </Link>
           </Button>
-          <Button
-            type="submit"
-            disabled={isLoading || Boolean(timeInvalid)}
-            aria-busy={isLoading}
-            aria-disabled={isLoading || Boolean(timeInvalid)}
-            tabIndex={0}
-          >
+          <Button type="submit" disabled={isLoading || !form.formState.isValid}>
             {isLoading ? (
               <>
-                <Loader2
-                  className="mr-2 h-4 w-4 animate-spin"
-                  aria-hidden="true"
-                />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Đang xử lý...
               </>
             ) : (
               <>
-                <Save className="mr-2 h-4 w-4" aria-hidden="true" />
-                {isEditMode ? "Lưu thay đổi" : "Tạo sự kiện"}
+                <Save className="mr-2 h-4 w-4" />
+                {isEditMode ? "Lưu thay đổi" : "Gửi đi duyệt"}
               </>
             )}
           </Button>

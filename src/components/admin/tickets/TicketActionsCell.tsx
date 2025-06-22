@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { adminDeleteTicket } from "@/lib/api"; // Giả sử bạn đã có hàm này trong lib/api.ts
+import { adminDeleteTicket } from "@/lib/api";
 
 interface TicketActionsCellProps {
   ticket: Ticket;
@@ -36,27 +36,34 @@ const TicketActionsCell: React.FC<TicketActionsCellProps> = ({ ticket }) => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Sửa vé
+  // Chuyển đến trang sửa vé
   const handleEditTicket = useCallback(() => {
-    router.push(`/admin/tickets/${ticket.id}/edit`);
-  }, [router, ticket.id]);
+    // Nên điều hướng đến trang quản lý vé trong context của sự kiện
+    // Ví dụ: /admin/events/EVENT_ID/tickets/TICKET_ID/edit
+    router.push(`/admin/events/${ticket.eventId}/tickets/${ticket.id}/edit`);
+  }, [router, ticket.id, ticket.eventId]);
 
-  // Xoá vé
+  // Xử lý xóa vé
   const handleDelete = useCallback(async () => {
     setIsDeleting(true);
     try {
       await adminDeleteTicket(ticket.id);
-      toast.success(`Vé "${ticket.ticketType}" đã được xóa.`);
+      toast.success(`Vé "${ticket.name}" đã được xóa thành công.`);
+      // Tốt nhất là sử dụng một cơ chế state management (như SWR hoặc React Query) để cập nhật UI
+      // thay vì refresh toàn bộ trang. Tạm thời dùng router.refresh().
       router.refresh();
     } catch (err) {
-      let message = "Xoá vé thất bại. Vui lòng thử lại.";
-      if (err instanceof Error) message = err.message;
-      toast.error(message);
+      // Cải thiện báo lỗi: Backend có thể trả về lỗi cụ thể, ví dụ "Không thể xóa vé đã có người mua".
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "Xoá vé thất bại. Vui lòng thử lại.";
+      toast.error(errorMessage);
     } finally {
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
     }
-  }, [ticket.id, ticket.ticketType, router]);
+  }, [ticket.id, ticket.name, router]);
 
   return (
     <>
@@ -70,40 +77,36 @@ const TicketActionsCell: React.FC<TicketActionsCellProps> = ({ ticket }) => {
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>Hành động</DropdownMenuLabel>
           <DropdownMenuItem
-            asChild
             disabled={isDeleting}
             onClick={handleEditTicket}
+            className="cursor-pointer"
           >
-            <button type="button" className="flex items-center">
-              <Edit className="mr-2 h-4 w-4" />
-              Sửa vé
-            </button>
+            <Edit className="mr-2 h-4 w-4" />
+            <span>Sửa vé</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem asChild disabled={isDeleting}>
-            <button
-              type="button"
-              onClick={() => setIsDeleteDialogOpen(true)}
-              className="flex items-center text-red-600 hover:!text-red-600 hover:!bg-red-100 dark:hover:!bg-red-900/50"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Xóa vé
-            </button>
+          <DropdownMenuItem
+            disabled={isDeleting}
+            onClick={() => setIsDeleteDialogOpen(true)}
+            className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            <span>Xóa vé</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Alert Dialog for Delete Confirmation */}
+      {/* Dialog xác nhận xóa */}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Xác nhận xóa</AlertDialogTitle>
+            <AlertDialogTitle>Bạn có chắc chắn muốn xóa?</AlertDialogTitle>
             <AlertDialogDescription>
-              Vé <strong>{ticket.ticketType}</strong> sẽ bị xóa vĩnh viễn. Bạn
-              có chắc không?
+              Vé <strong>{ticket.name}</strong> sẽ bị xóa vĩnh viễn. Hành động
+              này không thể hoàn tác.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -115,9 +118,10 @@ const TicketActionsCell: React.FC<TicketActionsCellProps> = ({ ticket }) => {
               disabled={isDeleting}
               aria-busy={isDeleting}
               type="button"
+              className="bg-red-600 hover:bg-red-700 text-white"
             >
               {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Xóa
+              Xác nhận Xóa
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

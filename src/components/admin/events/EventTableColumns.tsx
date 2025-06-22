@@ -1,11 +1,20 @@
-// components/admin/users/EventTableColumns.tsx
+// components/admin/events/EventTableColumns.tsx
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
 import { Event } from "@/types";
 import HighlightedText from "@/components/ui/highlighted-text";
-import { format, parse } from "date-fns";
+import { format } from "date-fns";
 import EventActionsCell from "./EventActionsCell";
+import { Badge } from "@/components/ui/badge";
+
+const statusVariantMap: {
+  [key: string]: "default" | "secondary" | "destructive" | "outline";
+} = {
+  APPROVED: "default", // Màu xanh (mặc định của shadcn)
+  PENDING_APPROVAL: "secondary", // Màu xám
+  REJECTED: "destructive", // Màu đỏ
+};
 
 export function eventColumns(keyword: string): ColumnDef<Event>[] {
   return [
@@ -13,25 +22,18 @@ export function eventColumns(keyword: string): ColumnDef<Event>[] {
       accessorKey: "title",
       header: "Tiêu đề sự kiện",
       cell: ({ row }) => (
-        <HighlightedText text={row.original.title} keyword={keyword} />
+        <div className="font-medium">
+          <HighlightedText text={row.original.title} keyword={keyword} />
+        </div>
       ),
     },
     {
-      accessorKey: "description",
-      header: "Mô tả",
-      cell: ({ row }) =>
-        row.original.description ? (
-          <HighlightedText text={row.original.description} keyword={keyword} />
-        ) : (
-          <span className="text-muted-foreground">N/A</span>
-        ),
-    },
-    {
-      accessorKey: "location",
+      // Sửa lại: Dùng venue.name thay cho location
+      accessorKey: "venue.name",
       header: "Địa điểm",
       cell: ({ row }) =>
-        row.original.location ? (
-          <HighlightedText text={row.original.location} keyword={keyword} />
+        row.original.venue?.name ? (
+          <HighlightedText text={row.original.venue.name} keyword={keyword} />
         ) : (
           <span className="text-muted-foreground">N/A</span>
         ),
@@ -44,66 +46,63 @@ export function eventColumns(keyword: string): ColumnDef<Event>[] {
         if (!categories.length)
           return <span className="text-muted-foreground">N/A</span>;
         return (
-          <span>
-            {categories.map((cat: { name: string }) => cat.name).join(", ")}
-          </span>
+          <div className="flex flex-wrap gap-1">
+            {categories.map((cat) => (
+              <Badge key={cat.id} variant="secondary">
+                {cat.name}
+              </Badge>
+            ))}
+          </div>
         );
       },
     },
     {
+      // Sửa lại: Dùng creator thay cho organizer
       accessorKey: "creator",
       header: "Người tạo",
       cell: ({ row }) =>
-        row.original.organizer?.fullName ||
-        row.original.organizer?.username || (
+        row.original.creator?.fullName ||
+        row.original.creator?.username || (
           <span className="text-muted-foreground">N/A</span>
         ),
     },
     {
       accessorKey: "startDate",
-      header: "Bắt đầu",
+      header: "Thời gian",
       cell: ({ row }) => {
-        const dateStr = row.original.startDate;
-        const date = dateStr
-          ? parse(dateStr, "yyyy-MM-dd'T'HH:mm:ss", new Date())
+        const startDate = row.original.startDate
+          ? new Date(row.original.startDate)
           : null;
-        return date ? (
-          format(date, "dd/MM/yyyy HH:mm")
-        ) : (
-          <span className="text-muted-foreground">N/A</span>
+        const endDate = row.original.endDate
+          ? new Date(row.original.endDate)
+          : null;
+
+        if (!startDate || !endDate)
+          return <span className="text-muted-foreground">N/A</span>;
+
+        return (
+          <div className="text-sm">
+            <p>BĐ: {format(startDate, "dd/MM/yy HH:mm")}</p>
+            <p className="text-muted-foreground">
+              KT: {format(endDate, "dd/MM/yy HH:mm")}
+            </p>
+          </div>
         );
       },
     },
     {
-      accessorKey: "endDate",
-      header: "Kết thúc",
+      accessorKey: "status",
+      header: "Trạng thái",
       cell: ({ row }) => {
-        const dateStr = row.original.endDate;
-        const date = dateStr
-          ? parse(dateStr, "yyyy-MM-dd'T'HH:mm:ss", new Date())
-          : null;
-        return date ? (
-          format(date, "dd/MM/yyyy HH:mm")
-        ) : (
-          <span className="text-muted-foreground">N/A</span>
+        const status = row.original.status;
+        if (!status) return <span className="text-muted-foreground">N/A</span>;
+        // Giả sử có 1 map để đổi màu badge theo status
+        return (
+          <Badge variant={statusVariantMap[status.status] || "outline"}>
+            {status.status}
+          </Badge>
         );
       },
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Ngày tạo",
-      cell: ({ row }) => {
-        const dateStr = row.original.createdAt;
-        const date = dateStr
-          ? parse(dateStr, "yyyy-MM-dd'T'HH:mm:ss", new Date())
-          : null;
-        return date ? (
-          format(date, "dd/MM/yyyy HH:mm")
-        ) : (
-          <span className="text-muted-foreground">N/A</span>
-        );
-      },
-      enableSorting: true,
     },
     {
       id: "actions",

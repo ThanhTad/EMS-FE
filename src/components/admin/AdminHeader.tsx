@@ -1,5 +1,4 @@
 // components/admin/AdminHeader.tsx
-// components/admin/AdminHeader.tsx
 
 "use client";
 

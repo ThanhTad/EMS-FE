@@ -2,122 +2,115 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-import { Ticket, User } from "@/types";
+import { Ticket, User, UserRole } from "@/types";
 import HighlightedText from "@/components/ui/highlighted-text";
 import TicketActionsCell from "./TicketActionsCell";
-import { format, parse } from "date-fns";
+import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 
-// Hàm tính trạng thái vé
-function getTicketStatus(ticket: Ticket): string {
+// Hàm tiện ích để xác định trạng thái hiển thị của vé
+function getTicketDisplayStatus(ticket: Ticket): {
+  text: string;
+  color: string;
+} {
   const now = new Date();
-  const start = ticket.saleStartDate
-    ? parse(ticket.saleStartDate, "yyyy-MM-dd'T'HH:mm:ss", new Date())
-    : null;
-  const end = ticket.saleEndDate
-    ? parse(ticket.saleEndDate, "yyyy-MM-dd'T'HH:mm:ss", new Date())
-    : null;
+  const start = ticket.saleStartDate ? new Date(ticket.saleStartDate) : null;
+  const end = ticket.saleEndDate ? new Date(ticket.saleEndDate) : null;
 
-  if (ticket.availableQuantity === 0) return "Sold out";
-  if (start && now < start) return "Pending";
-  if (end && now > end) return "Ended";
-  return "Active";
+  if (ticket.status?.status.toLowerCase() === "inactive") {
+    return { text: "Tạm ẩn", color: "bg-neutral-400" };
+  }
+  if ((ticket.availableQuantity ?? 0) <= 0 && ticket.totalQuantity! > 0) {
+    return { text: "Hết vé", color: "bg-red-600" };
+  }
+
+  if (start && now < start) {
+    return { text: "Sắp mở bán", color: "bg-yellow-500" };
+  }
+  if (end && now > end) {
+    return { text: "Đã kết thúc", color: "bg-gray-500" };
+  }
+  return { text: "Đang bán", color: "bg-green-600" };
 }
 
+// Định nghĩa các cột cho bảng
 export function ticketColumns(
   keyword: string,
-  eventIdToName: Record<string, string>,
-  currentUser: User & { role: string; eventIds?: string[] },
-  eventIdToCreatorId: Record<string, string>
+  currentUser: User
 ): ColumnDef<Ticket>[] {
   return [
     {
-      accessorKey: "ticketType",
-      header: "Loại vé",
+      accessorKey: "name",
+      header: "Tên vé",
       cell: ({ row }) => (
-        <HighlightedText text={row.original.ticketType} keyword={keyword} />
+        <div className="font-medium">
+          <HighlightedText text={row.original.name} keyword={keyword} />
+          {row.original.appliesToSectionId && (
+            <p className="text-xs text-muted-foreground">
+              {/* Giả định có 1 map sectionId -> sectionName để hiển thị tên khu vực */}
+              Khu vực:{" "}
+              {row.original.event?.seatMap?.sections?.find(
+                (s) => s.id === row.original.appliesToSectionId
+              )?.name || "N/A"}
+            </p>
+          )}
+        </div>
       ),
     },
     {
-      accessorKey: "eventId",
+      // Giả sử API trả về event object được lồng vào trong ticket
+      accessorKey: "event.title",
       header: "Sự kiện",
-      cell: ({ row }) =>
-        eventIdToName[row.original.eventId] || (
-          <span className="text-muted-foreground">N/A</span>
-        ),
+      cell: ({ row }) => row.original.event?.title || "Không xác định",
     },
     {
       accessorKey: "price",
       header: "Giá",
       cell: ({ row }) =>
-        row.original.isFree ? (
-          <Badge className="bg-blue-500">Miễn phí</Badge>
+        row.original.price === 0 ? (
+          <Badge variant="secondary">Miễn phí</Badge>
         ) : (
-          <>
-            {row.original.price?.toLocaleString()}₫
-            {row.original.earlyBirdDiscount &&
-              row.original.earlyBirdDiscount > 0 && (
-                <Badge className="ml-2 bg-green-500">
-                  Early Bird -{Math.round(row.original.earlyBirdDiscount * 100)}
-                  %
-                </Badge>
-              )}
-          </>
+          `${row.original.price.toLocaleString()}₫`
         ),
     },
     {
-      accessorKey: "totalQuantity",
-      header: "Tổng số",
-      cell: ({ row }) => row.original.totalQuantity,
-    },
-    {
-      accessorKey: "availableQuantity",
-      header: "Còn lại",
+      id: "quantity",
+      header: "Số lượng (Còn lại/Tổng)",
       cell: ({ row }) => {
         const { availableQuantity, totalQuantity } = row.original;
-        const warning =
+        const isLowStock =
           typeof availableQuantity === "number" &&
           typeof totalQuantity === "number" &&
-          availableQuantity > 0 &&
           totalQuantity > 0 &&
           availableQuantity / totalQuantity < 0.1;
         return (
-          <>
-            <span>{availableQuantity}</span>
-            {warning && (
-              <Badge className="ml-2 bg-orange-500">Sắp hết vé</Badge>
-            )}
-          </>
+          <div className="text-center">
+            <span className={isLowStock ? "text-orange-500 font-bold" : ""}>
+              {`${availableQuantity ?? "N/A"} / ${totalQuantity ?? "N/A"}`}
+            </span>
+          </div>
         );
       },
     },
     {
-      accessorKey: "saleStartDate",
-      header: "Bắt đầu bán",
+      id: "saleTime",
+      header: "Thời gian bán",
       cell: ({ row }) => {
-        const dateStr = row.original.saleStartDate;
-        const date = dateStr
-          ? parse(dateStr, "yyyy-MM-dd'T'HH:mm:ss", new Date())
+        const start = row.original.saleStartDate
+          ? new Date(row.original.saleStartDate)
           : null;
-        return date ? (
-          format(date, "dd/MM/yyyy HH:mm")
-        ) : (
-          <span className="text-muted-foreground">N/A</span>
-        );
-      },
-    },
-    {
-      accessorKey: "saleEndDate",
-      header: "Kết thúc bán",
-      cell: ({ row }) => {
-        const dateStr = row.original.saleEndDate;
-        const date = dateStr
-          ? parse(dateStr, "yyyy-MM-dd'T'HH:mm:ss", new Date())
+        const end = row.original.saleEndDate
+          ? new Date(row.original.saleEndDate)
           : null;
-        return date ? (
-          format(date, "dd/MM/yyyy HH:mm")
-        ) : (
-          <span className="text-muted-foreground">N/A</span>
+        if (!start || !end)
+          return <span className="text-muted-foreground">N/A</span>;
+        return (
+          <div className="text-sm">
+            <p>{format(start, "dd/MM/yy HH:mm")}</p>
+            <p className="text-muted-foreground">
+              đến {format(end, "dd/MM/yy HH:mm")}
+            </p>
+          </div>
         );
       },
     },
@@ -125,30 +118,27 @@ export function ticketColumns(
       id: "status",
       header: "Trạng thái",
       cell: ({ row }) => {
-        const status = getTicketStatus(row.original);
-        const color =
-          status === "Active"
-            ? "bg-green-600"
-            : status === "Sold out"
-            ? "bg-red-600"
-            : status === "Pending"
-            ? "bg-gray-500"
-            : "bg-neutral-400";
-        return <Badge className={color}>{status}</Badge>;
+        const status = getTicketDisplayStatus(row.original);
+        return (
+          <Badge className={`${status.color} hover:${status.color}`}>
+            {status.text}
+          </Badge>
+        );
       },
     },
     {
       id: "actions",
-      header: "Thao tác",
       cell: ({ row }) => {
         const ticket = row.original;
-        // MODERATOR chỉ thao tác với vé của event mình tạo
-        const eventCreatorId = eventIdToCreatorId[ticket.eventId];
-        const canEditOrDelete =
-          currentUser.role === "ROLE_ADMIN" ||
-          (currentUser.role === "ROLE_ORGANIZER" &&
+        // Kiểm tra quyền: ADMIN hoặc ORGANIZER sở hữu sự kiện
+        const eventCreatorId = ticket.event?.creatorId;
+        const canManage =
+          currentUser.role === UserRole.ADMIN ||
+          (currentUser.role === UserRole.ORGANIZER &&
             eventCreatorId === currentUser.id);
-        if (!canEditOrDelete) return null;
+
+        if (!canManage) return null;
+
         return <TicketActionsCell ticket={ticket} />;
       },
     },
