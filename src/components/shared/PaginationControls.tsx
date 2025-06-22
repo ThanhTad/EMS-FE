@@ -1,5 +1,5 @@
+//app/components/shared/PaginationControls.tsx
 "use client";
-
 import React from "react";
 import {
   Pagination,
@@ -10,8 +10,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "../ui/pagination";
-import { usePathname, useSearchParams } from "next/navigation";
-import { useRouter } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 
 interface PaginationControlsProps {
   currentPage: number;
@@ -36,6 +35,7 @@ const PaginationControls: React.FC<PaginationControlsProps> = ({
 
   const renderPageNumbers = () => {
     const pageNumbers = [];
+    // Show prev, current, next pages (window size = 3)
     for (
       let i = Math.max(1, currentPage - 1);
       i <= Math.min(totalPages, currentPage + 1);
@@ -46,10 +46,17 @@ const PaginationControls: React.FC<PaginationControlsProps> = ({
           <PaginationLink
             href={createPageURL(i)}
             isActive={currentPage === i}
-            onClick={(e) => {
-              e.preventDefault();
-              router.push(createPageURL(i));
-            }}
+            className={currentPage === i ? "bg-primary text-white" : ""}
+            aria-current={currentPage === i ? "page" : undefined}
+            tabIndex={currentPage === i ? -1 : 0}
+            onClick={
+              currentPage === i
+                ? undefined
+                : (e) => {
+                    e.preventDefault();
+                    router.push(createPageURL(i));
+                  }
+            }
           >
             {i}
           </PaginationLink>
@@ -57,22 +64,66 @@ const PaginationControls: React.FC<PaginationControlsProps> = ({
       );
     }
 
+    // First page + ellipsis
     if (currentPage > 2) {
       pageNumbers.unshift(
         <PaginationItem key={1}>
-          <PaginationLink href={createPageURL(1)}>1</PaginationLink>
+          <PaginationLink
+            href={createPageURL(1)}
+            className={currentPage === 1 ? "bg-primary text-white" : ""}
+            aria-current={currentPage === 1 ? "page" : undefined}
+            tabIndex={currentPage === 1 ? -1 : 0}
+            onClick={
+              currentPage === 1
+                ? undefined
+                : (e) => {
+                    e.preventDefault();
+                    router.push(createPageURL(1));
+                  }
+            }
+          >
+            1
+          </PaginationLink>
         </PaginationItem>
       );
+      if (currentPage > 3) {
+        pageNumbers.splice(
+          1,
+          0,
+          <PaginationItem key="start-ellipsis">
+            <PaginationEllipsis />
+          </PaginationItem>
+        );
+      }
     }
+
+    // Last page + ellipsis
     if (currentPage < totalPages - 1) {
-      pageNumbers.push(
-        <PaginationItem key="end-ellipsis">
-          <PaginationEllipsis />
-        </PaginationItem>
-      );
+      if (currentPage < totalPages - 2) {
+        pageNumbers.push(
+          <PaginationItem key="end-ellipsis">
+            <PaginationEllipsis />
+          </PaginationItem>
+        );
+      }
       pageNumbers.push(
         <PaginationItem key={totalPages}>
-          <PaginationLink href={createPageURL(totalPages)}>
+          <PaginationLink
+            href={createPageURL(totalPages)}
+            className={
+              currentPage === totalPages ? "bg-primary text-white" : ""
+            }
+            aria-current={currentPage === totalPages ? "page" : undefined}
+            tabIndex={currentPage === totalPages ? -1 : 0}
+            onClick={
+              currentPage === totalPages
+                ? undefined
+                : (e) => {
+                    e.preventDefault();
+                    router.push(createPageURL(totalPages));
+                  }
+            }
+          >
             {totalPages}
           </PaginationLink>
         </PaginationItem>
@@ -81,6 +132,7 @@ const PaginationControls: React.FC<PaginationControlsProps> = ({
 
     return pageNumbers;
   };
+
   return (
     <Pagination>
       <PaginationContent>
@@ -92,11 +144,17 @@ const PaginationControls: React.FC<PaginationControlsProps> = ({
             className={
               currentPage <= 1 ? "pointer-events-none opacity-50" : undefined
             }
+            onClick={
+              currentPage <= 1
+                ? undefined
+                : (e) => {
+                    e.preventDefault();
+                    router.push(createPageURL(currentPage - 1));
+                  }
+            }
           />
         </PaginationItem>
-
         {renderPageNumbers()}
-
         <PaginationItem>
           <PaginationNext
             href={
@@ -108,6 +166,14 @@ const PaginationControls: React.FC<PaginationControlsProps> = ({
               currentPage >= totalPages
                 ? "pointer-events-none opacity-50"
                 : undefined
+            }
+            onClick={
+              currentPage >= totalPages
+                ? undefined
+                : (e) => {
+                    e.preventDefault();
+                    router.push(createPageURL(currentPage + 1));
+                  }
             }
           />
         </PaginationItem>

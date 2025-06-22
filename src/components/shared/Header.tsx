@@ -31,8 +31,6 @@ const Header = () => {
   // Tính tên hiển thị và avatar
   const displayName = user ? user.fullName || user.username : "";
 
-  console.log("Header render", user?.fullName);
-
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:border-gray-700 dark:bg-gray-900/95 dark:supports-[backdrop-filter]:bg-gray-900/60 md:px-6">
       {/* Logo & Nav Desktop */}
