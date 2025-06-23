@@ -582,10 +582,51 @@ export const downloadQrCode = async (purchaseId: string): Promise<void> => {
 
 export const getSectionsForEvent = (eventId: string): Promise<SeatSection[]> =>
   API.get<ApiResponse<SeatSection[]>>(
-    `/api/v1/events/${eventId}/sections` // Giả sử backend có endpoint này
+    `/api/v1/events/${eventId}/sections`
   ).then((res) => res.data.data);
 
 export const adminGetOrganizers = (): Promise<User[]> =>
   API.get<ApiResponse<User[]>>("/api/v1/admin/organizers").then(
     (res) => res.data.data
   );
+
+interface AdminGetEventsParams {
+  page?: number;
+  size?: number;
+  sort?: string;
+  organizerId?: string;
+}
+export const adminGetEvents = (
+  params: AdminGetEventsParams
+): Promise<Paginated<Event>> =>
+  API.get<ApiResponse<Paginated<Event>>>("/api/v1/admin/events", {
+    params,
+  }).then((res) => res.data.data);
+
+interface AdminGetTicketsParams {
+  page?: number;
+  size?: number;
+  sort?: string;
+  eventId?: string;
+  statusId?: string;
+  organizerId?: string;
+}
+
+export const adminGetTickets = (
+  params: AdminGetTicketsParams
+): Promise<Paginated<Ticket>> =>
+  API.get<ApiResponse<Paginated<Ticket>>>("/api/v1/admin/tickets", {
+    params,
+  }).then((res) => res.data.data);
+
+export interface NotificationsResponse {
+  unreadCount: number;
+  notifications: Paginated<Notification>;
+}
+
+// Hàm API mới, gọi một endpoint BE được thiết kế để trả về cả 2
+// Nếu BE không thể làm, bạn có thể dùng Promise.all ở đây
+export const getNotificationsSummary = (): Promise<NotificationsResponse> =>
+  API.get<ApiResponse<NotificationsResponse>>(
+    "/api/v1/notifications/summary"
+  ).then((res) => res.data.data);

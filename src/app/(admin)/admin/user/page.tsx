@@ -7,107 +7,114 @@ import Link from "next/link";
 import { PlusCircle, ServerCrash } from "lucide-react";
 import { Suspense } from "react";
 import { DataTableSkeleton } from "@/components/shared/DataTableSkeleton";
-import { cookies } from "next/headers";
 import { Metadata } from "next";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { redirect } from "next/navigation";
+import { getAndVerifyServerSideUser } from "@/lib/session"; // <-- SỬ DỤNG LẠI HELPER
+import { UserRole } from "@/types"; // <-- SỬ DỤNG ENUM
 
 export const metadata: Metadata = {
   title: "Quản lý Người dùng | Admin EMS",
   description: "Xem và quản lý danh sách người dùng hệ thống.",
 };
 
+// Interface props chi tiết hơn để code an toàn
 interface AdminUsersPageProps {
-  searchParams: Record<string, string | undefined>;
+  searchParams: {
+    page?: string;
+    size?: string;
+    keyword?: string;
+    sort?: string;
+  };
 }
 
 export default async function AdminUsersPage({
   searchParams,
 }: AdminUsersPageProps) {
-  const cookieStore = await cookies();
-  const tokenCookie = cookieStore.get("ems_auth_token");
-  const token = tokenCookie?.value;
+  // 1. LẤY VÀ XÁC THỰC USER PHÍA SERVER
+  const currentUser = await getAndVerifyServerSideUser();
 
-  if (!token) {
-    // Redirect user to login if token is missing
-    redirect("/login");
+  // 2. KIỂM TRA QUYỀN TRUY CẬP NGHIÊM NGẶT
+  // Chỉ ADMIN mới được vào trang này
+  if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+    // Nếu chưa đăng nhập, chuyển đến trang login
+    if (!currentUser) {
+      redirect("/login?callbackUrl=/admin/users");
+    }
+    // Nếu đã đăng nhập nhưng không có quyền, chuyển đến trang "không có quyền"
+    redirect("/unauthorized");
   }
+
+  // 3. LOGIC HIỂN THỊ NÚT TẠO MỚI (CHỈ ADMIN)
+  const canCreateUser = currentUser.role === UserRole.ADMIN;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold dark:text-gray-100">
-          Quản lý Người dùng
-        </h1>
-        <Button asChild>
-          <Link href="/admin/users/new">
-            <PlusCircle className="mr-2 h-4 w-4 dark:text-gray-300" /> Thêm
-            người dùng mới
-          </Link>
-        </Button>
+        <h1 className="text-2xl font-semibold">Quản lý Người dùng</h1>
+        {canCreateUser && (
+          <Button asChild>
+            <Link href="/admin/users/new">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Thêm người dùng mới
+            </Link>
+          </Button>
+        )}
       </div>
 
       <Suspense
+        // 4. THÊM KEY VÀO SUSPENSE ĐỂ ĐẢM BẢO RE-RENDER ĐÚNG
+        key={
+          searchParams.page ||
+          "1" + searchParams.size ||
+          "10" + searchParams.keyword
+        }
         fallback={
           <DataTableSkeleton
-            columnCount={userColumns("").length}
-            rowCount={10}
+            // 5. ĐƠN GIẢN HÓA PROPS
+            columnCount={userColumns.length}
+            rowCount={Number(searchParams.size) || 10}
           />
         }
       >
-        <UsersTable searchParams={searchParams} />
+        <UsersTableWrapper searchParams={searchParams} />
       </Suspense>
     </div>
   );
 }
 
-async function UsersTable({ searchParams }: AdminUsersPageProps) {
-  // 1-based page in URL -> convert to 0-based
-  const pageParam = Number(searchParams.page ?? "1") - 1;
-  const sizeParam = Number(searchParams.size ?? "10");
+// Đổi tên component để rõ ràng hơn vai trò của nó
+async function UsersTableWrapper({ searchParams }: AdminUsersPageProps) {
+  const page = Math.max(0, Number(searchParams.page ?? "1") - 1);
+  const size = Math.max(1, Number(searchParams.size ?? "10"));
   const keyword = searchParams.keyword;
   const sort = searchParams.sort;
 
   try {
     const usersData = keyword
-      ? await adminSearchUsers({
-          page: pageParam,
-          size: sizeParam,
-          sort,
-          keyword,
-        })
-      : await adminGetUsers({
-          page: pageParam,
-          size: sizeParam,
-          sort,
-        });
+      ? await adminSearchUsers({ page, size, sort, keyword })
+      : await adminGetUsers({ page, size, sort });
 
     return (
       <DataTable
-        columns={userColumns(keyword ?? "")}
-        data={usersData.content}
-        pageCount={usersData.totalPages}
-        totalRecords={usersData.totalElements}
+        // 5. ĐƠN GIẢN HÓA PROPS: userColumns không cần biết về keyword
+        columns={userColumns}
+        data={usersData.content ?? []}
+        pageCount={usersData.totalPages ?? 0}
+        totalRecords={usersData.totalElements ?? 0}
       />
     );
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("Failed to fetch users for admin:", error.message);
-    } else {
-      console.error("Unknown error: ", error);
-    }
+    const errorMessage =
+      error instanceof Error ? error.message : "Đã xảy ra lỗi không xác định.";
+    console.error("Failed to fetch users for admin:", errorMessage);
 
     return (
-      <Alert
-        variant="destructive"
-        className="dark:bg-gray-800 dark:text-gray-200"
-      >
-        <ServerCrash className="h-4 w-4 dark:text-red-500" />
-        <AlertTitle className="dark:text-gray-100">
-          Lỗi tải dữ liệu người dùng
-        </AlertTitle>
-        <AlertDescription className="dark:text-gray-300">
-          Không thể tải danh sách người dùng. Vui lòng thử lại sau.
+      <Alert variant="destructive">
+        <ServerCrash className="h-4 w-4" />
+        <AlertTitle>Lỗi tải dữ liệu người dùng</AlertTitle>
+        <AlertDescription>
+          Không thể tải danh sách người dùng. Chi tiết: {errorMessage}
         </AlertDescription>
       </Alert>
     );

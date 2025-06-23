@@ -1,45 +1,25 @@
-// app/(admin)/users/new/page.tsx
+import { getAndVerifyServerSideUser } from "@/lib/session";
+import { UserRole } from "@/types";
+import { redirect } from "next/navigation";
+import CreateUserClient from "@/components/admin/users/CreateUserClient"; // Import Client Component
+import { Metadata } from "next";
 
-"use client";
+export const metadata: Metadata = {
+  title: "Tạo người dùng mới | Admin EMS",
+};
 
-import React, { useState } from "react";
-import UserForm from "@/components/admin/users/UserForm";
-import { adminCreateUser } from "@/lib/api";
-import { AdminCreateUserRequest } from "@/types";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+export default async function AdminCreateUserPage() {
+  // BẢO VỆ ROUTE Ở PHÍA SERVER
+  const currentUser = await getAndVerifyServerSideUser();
 
-export default function AdminCreateUserPage() {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-
-  const handleCreateUser = async (data: AdminCreateUserRequest) => {
-    setIsLoading(true);
-    try {
-      await adminCreateUser(data);
-      toast.success("Thành công", {
-        description: `Người dùng ${data.username} đã được tạo.`,
-      });
-      router.push("/admin/users");
-      // Nếu trang /admin/users đã tự fetch dữ liệu, có thể bỏ router.refresh()
-    } catch (error) {
-      let message = "Không thể tạo người dùng.";
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      toast.error("Tạo thất bại", { description: message });
-    } finally {
-      setIsLoading(false);
+  // Chỉ ADMIN mới được tạo người dùng
+  if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+    if (!currentUser) {
+      redirect("/login?callbackUrl=/admin/users/new");
     }
-  };
+    redirect("/unauthorized");
+  }
 
-  return (
-    <div className="space-y-6">
-      <UserForm
-        onSubmit={handleCreateUser}
-        isLoading={isLoading}
-        isEditMode={false}
-      />
-    </div>
-  );
+  // Nếu có quyền, render Client Component để hiển thị form
+  return <CreateUserClient />;
 }

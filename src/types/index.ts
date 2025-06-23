@@ -528,7 +528,11 @@ export interface Notification {
   id: string;
   userId: string;
   content: string;
-  relatedEventId?: string;
+  relatedEvent?: {
+    id: string;
+    title: string;
+    slug: string;
+  } | null;
   type?: string;
   read: boolean;
   createdAt: ISODateString;

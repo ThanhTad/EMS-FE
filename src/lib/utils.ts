@@ -90,3 +90,24 @@ export async function toBlob(
     img.onerror = reject;
   });
 }
+// utils/format-date.ts
+type ISODateString = string;
+
+export function formatISODate(
+  isoDateString: ISODateString | undefined,
+  formatString: string = "PPP" // Mặc định format đẹp: "Oct 29, 2023"
+): string {
+  if (!isoDateString) {
+    return "N/A";
+  }
+  try {
+    const date = parseISO(isoDateString);
+    return format(date, formatString, { locale: vi }); // Thêm locale nếu cần
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("Error formatting date:", error.message);
+    }
+    console.error("Invalid date format:", isoDateString);
+    return "Invalid Date";
+  }
+}

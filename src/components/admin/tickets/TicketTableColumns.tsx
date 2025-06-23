@@ -2,145 +2,73 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-import { Ticket, User, UserRole } from "@/types";
-import HighlightedText from "@/components/ui/highlighted-text";
+import { Ticket, Event } from "@/types";
+import { DataTableColumnHeader } from "@/components/shared/DataTableColumnHeader";
+import { formatISODate } from "@/lib/utils";
+import { formatPrice } from "@/lib/utils";
+import Link from "next/link";
 import TicketActionsCell from "./TicketActionsCell";
-import { format } from "date-fns";
-import { Badge } from "@/components/ui/badge";
 
-// Hàm tiện ích để xác định trạng thái hiển thị của vé
-function getTicketDisplayStatus(ticket: Ticket): {
-  text: string;
-  color: string;
-} {
-  const now = new Date();
-  const start = ticket.saleStartDate ? new Date(ticket.saleStartDate) : null;
-  const end = ticket.saleEndDate ? new Date(ticket.saleEndDate) : null;
-
-  if (ticket.status?.status.toLowerCase() === "inactive") {
-    return { text: "Tạm ẩn", color: "bg-neutral-400" };
-  }
-  if ((ticket.availableQuantity ?? 0) <= 0 && ticket.totalQuantity! > 0) {
-    return { text: "Hết vé", color: "bg-red-600" };
-  }
-
-  if (start && now < start) {
-    return { text: "Sắp mở bán", color: "bg-yellow-500" };
-  }
-  if (end && now > end) {
-    return { text: "Đã kết thúc", color: "bg-gray-500" };
-  }
-  return { text: "Đang bán", color: "bg-green-600" };
+// Giả sử Ticket type từ API đã có event được populate
+interface TicketWithEvent extends Ticket {
+  event?: Pick<Event, "id" | "title" | "creatorId">;
 }
 
-// Định nghĩa các cột cho bảng
-export function ticketColumns(
-  keyword: string,
-  currentUser: User
-): ColumnDef<Ticket>[] {
-  return [
-    {
-      accessorKey: "name",
-      header: "Tên vé",
-      cell: ({ row }) => (
-        <div className="font-medium">
-          <HighlightedText text={row.original.name} keyword={keyword} />
-          {row.original.appliesToSectionId && (
-            <p className="text-xs text-muted-foreground">
-              {/* Giả định có 1 map sectionId -> sectionName để hiển thị tên khu vực */}
-              Khu vực:{" "}
-              {row.original.event?.seatMap?.sections?.find(
-                (s) => s.id === row.original.appliesToSectionId
-              )?.name || "N/A"}
-            </p>
-          )}
-        </div>
-      ),
+export const ticketColumns: ColumnDef<TicketWithEvent>[] = [
+  {
+    accessorKey: "name",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Tên vé" />
+    ),
+    cell: ({ row }) => <div className="font-medium">{row.original.name}</div>,
+  },
+  {
+    accessorKey: "event",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Sự kiện" />
+    ),
+    cell: ({ row }) => {
+      const event = row.original.event;
+      if (!event) return <span className="text-muted-foreground">N/A</span>;
+      return (
+        <Link href={`/admin/events/${event.id}`} className="hover:underline">
+          {event.title}
+        </Link>
+      );
     },
-    {
-      // Giả sử API trả về event object được lồng vào trong ticket
-      accessorKey: "event.title",
-      header: "Sự kiện",
-      cell: ({ row }) => row.original.event?.title || "Không xác định",
+  },
+  {
+    accessorKey: "price",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Giá vé" />
+    ),
+    cell: ({ row }) => formatPrice(row.original.price),
+  },
+  {
+    accessorKey: "availableQuantity",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Số lượng còn lại" />
+    ),
+    cell: ({ row }) => {
+      const { availableQuantity, totalQuantity } = row.original;
+      if (
+        typeof availableQuantity !== "number" ||
+        typeof totalQuantity !== "number"
+      ) {
+        return <span className="text-muted-foreground">—</span>;
+      }
+      return `${availableQuantity} / ${totalQuantity}`;
     },
-    {
-      accessorKey: "price",
-      header: "Giá",
-      cell: ({ row }) =>
-        row.original.price === 0 ? (
-          <Badge variant="secondary">Miễn phí</Badge>
-        ) : (
-          `${row.original.price.toLocaleString()}₫`
-        ),
-    },
-    {
-      id: "quantity",
-      header: "Số lượng (Còn lại/Tổng)",
-      cell: ({ row }) => {
-        const { availableQuantity, totalQuantity } = row.original;
-        const isLowStock =
-          typeof availableQuantity === "number" &&
-          typeof totalQuantity === "number" &&
-          totalQuantity > 0 &&
-          availableQuantity / totalQuantity < 0.1;
-        return (
-          <div className="text-center">
-            <span className={isLowStock ? "text-orange-500 font-bold" : ""}>
-              {`${availableQuantity ?? "N/A"} / ${totalQuantity ?? "N/A"}`}
-            </span>
-          </div>
-        );
-      },
-    },
-    {
-      id: "saleTime",
-      header: "Thời gian bán",
-      cell: ({ row }) => {
-        const start = row.original.saleStartDate
-          ? new Date(row.original.saleStartDate)
-          : null;
-        const end = row.original.saleEndDate
-          ? new Date(row.original.saleEndDate)
-          : null;
-        if (!start || !end)
-          return <span className="text-muted-foreground">N/A</span>;
-        return (
-          <div className="text-sm">
-            <p>{format(start, "dd/MM/yy HH:mm")}</p>
-            <p className="text-muted-foreground">
-              đến {format(end, "dd/MM/yy HH:mm")}
-            </p>
-          </div>
-        );
-      },
-    },
-    {
-      id: "status",
-      header: "Trạng thái",
-      cell: ({ row }) => {
-        const status = getTicketDisplayStatus(row.original);
-        return (
-          <Badge className={`${status.color} hover:${status.color}`}>
-            {status.text}
-          </Badge>
-        );
-      },
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => {
-        const ticket = row.original;
-        // Kiểm tra quyền: ADMIN hoặc ORGANIZER sở hữu sự kiện
-        const eventCreatorId = ticket.event?.creatorId;
-        const canManage =
-          currentUser.role === UserRole.ADMIN ||
-          (currentUser.role === UserRole.ORGANIZER &&
-            eventCreatorId === currentUser.id);
-
-        if (!canManage) return null;
-
-        return <TicketActionsCell ticket={ticket} />;
-      },
-    },
-  ];
-}
+  },
+  {
+    accessorKey: "createdAt",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Ngày tạo" />
+    ),
+    cell: ({ row }) => formatISODate(row.original.createdAt, "dd/MM/yyyy"),
+  },
+  {
+    id: "actions",
+    cell: ({ row }) => <TicketActionsCell ticket={row.original} />,
+  },
+];
