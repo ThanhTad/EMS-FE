@@ -1,201 +1,97 @@
 // app/(admin)/events/(id)/edit/page.tsx
-"use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import EventForm from "@/components/admin/events/EventForm";
 import {
   getEventById,
-  adminUpdateEvent,
   getCategories,
+  getVenues,
   adminGetOrganizers,
 } from "@/lib/api";
-import { Event, Category, User, UserRole } from "@/types";
-import { toast } from "sonner";
-import { useRouter, useParams } from "next/navigation";
-import { Skeleton } from "@/components/ui/skeleton";
+import { getAndVerifyServerSideUser } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { User, UserRole } from "@/types";
+import EditEventClientPage from "@/components/admin/events/EditEventClientPage"; // Component Client sẽ tạo ở bước 2
+import { Metadata } from "next";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ServerCrash } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
-import { useAuth } from "@/contexts/AuthContext";
 
-// Định nghĩa payload update event
-export interface AdminUpdateEventPayload {
-  title: string;
-  description?: string;
-  location?: string;
-  startDate: string;
-  endDate: string;
-  categoryIds: string[];
-  creatorId: string;
-  // các trường khác nếu muốn
+// Tạo Metadata động dựa trên tiêu đề sự kiện
+export async function generateMetadata({
+  params,
+}: {
+  params: { id: string };
+}): Promise<Metadata> {
+  try {
+    const event = await getEventById(params.id);
+    return {
+      title: `Sửa sự kiện: ${event.title} | Admin EMS`,
+    };
+  } catch {
+    return {
+      title: "Sửa sự kiện | Admin EMS",
+    };
+  }
 }
 
-// Skeleton cho form khi đang load initialData
-function EventFormSkeleton() {
-  return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <Skeleton className="h-8 w-1/2" />
-        <Skeleton className="h-4 w-3/4" />
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-16" />
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-          </div>
-        </div>
-      </CardContent>
-      <CardFooter className="flex justify-between">
-        <Skeleton className="h-10 w-28" />
-        <Skeleton className="h-10 w-36" />
-      </CardFooter>
-    </Card>
-  );
+interface AdminEditEventPageProps {
+  params: { id: string };
 }
 
-export default function AdminEditEventPage() {
-  const { user } = useAuth();
-  const router = useRouter();
-  const params = useParams();
-  const eventId = params.id as string;
+export default async function AdminEditEventPage({
+  params,
+}: AdminEditEventPageProps) {
+  const eventId = params.id;
 
-  const [initialEventData, setInitialEventData] = useState<Event | null>(null);
-  const [isLoadingData, setIsLoadingData] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-
-  const [categoryOptions, setCategoryOptions] = useState<Category[]>([]);
-  const [moderatorOptions, setModeratorOptions] = useState<User[]>([]);
-
-  // Fetch event data
-  const fetchEventData = useCallback(async () => {
-    if (!eventId) {
-      toast.error("Thiếu thông tin", {
-        description: "Không tìm thấy ID sự kiện.",
-      });
-      setFetchError("Không tìm thấy ID sự kiện.");
-      setIsLoadingData(false);
-      return;
-    }
-    setIsLoadingData(true);
-    setFetchError(null);
-    try {
-      const [eventRes, categoriesRes, moderatorsRes] = await Promise.all([
-        getEventById(eventId),
-        getCategories(),
-        user?.role === UserRole.ADMIN
-          ? adminGetOrganizers()
-          : Promise.resolve([]),
-      ]);
-      setInitialEventData(eventRes);
-      setCategoryOptions(categoriesRes.content);
-      setModeratorOptions(moderatorsRes);
-    } catch (error) {
-      let message = "Không thể tải dữ liệu sự kiện.";
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      setFetchError(message);
-      toast.error("Lỗi", {
-        description: `Không thể tải dữ liệu cho sự kiện ${eventId}: ${message}`,
-      });
-    } finally {
-      setIsLoadingData(false);
-    }
-  }, [eventId, user?.role]);
-
-  useEffect(() => {
-    fetchEventData();
-  }, [fetchEventData]);
-
-  const handleUpdateEvent = async (data: AdminUpdateEventPayload) => {
-    if (!eventId) {
-      toast.error("Lỗi xác thực", { description: "Vui lòng đăng nhập lại." });
-      return;
-    }
-    setIsSubmitting(true);
-    try {
-      await adminUpdateEvent(eventId, data);
-      toast.success("Thành công", {
-        description: "Thông tin sự kiện đã được cập nhật.",
-      });
-      router.push("/admin/events");
-      router.refresh();
-    } catch (error) {
-      let message = "Không thể cập nhật sự kiện.";
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      toast.error("Cập nhật thất bại", { description: message });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (isLoadingData) {
-    return (
-      <div className="space-y-6">
-        <EventFormSkeleton />
-      </div>
-    );
+  // 1. Xác thực và Phân quyền trên Server
+  const currentUser = await getAndVerifyServerSideUser();
+  if (!currentUser) {
+    redirect(`/login?callbackUrl=/admin/events/${eventId}/edit`);
   }
 
-  if (fetchError || !initialEventData) {
+  // 2. Fetch tất cả dữ liệu cần thiết song song
+  try {
+    const [eventData, categoriesData, venuesData, organizersData] =
+      await Promise.all([
+        getEventById(eventId),
+        getCategories({ size: 1000 }),
+        getVenues({ size: 1000 }),
+        currentUser.role === UserRole.ADMIN
+          ? adminGetOrganizers()
+          : Promise.resolve([] as User[]),
+      ]);
+
+    // 3. KIỂM TRA QUYỀN SỞ HỮU (RẤT QUAN TRỌNG)
+    // Nếu người dùng là ORGANIZER, họ chỉ được sửa sự kiện của chính mình.
+    if (
+      currentUser.role === UserRole.ORGANIZER &&
+      eventData.creatorId !== currentUser.id
+    ) {
+      redirect("/unauthorized"); // Hoặc trang báo lỗi không có quyền
+    }
+
+    // 4. Truyền dữ liệu xuống Client Component
     return (
-      <div className="container mx-auto px-4 py-8 md:py-12 flex justify-center">
-        <Alert variant="destructive" className="max-w-md">
+      <EditEventClientPage
+        initialEvent={eventData}
+        initialCategories={categoriesData.content}
+        initialVenues={venuesData.content}
+        initialOrganizers={organizersData}
+        currentUser={currentUser}
+      />
+    );
+  } catch (error) {
+    // 5. Xử lý lỗi nếu không fetch được dữ liệu
+    console.error(`Failed to fetch data for event ${eventId}:`, error);
+    return (
+      <div className="container mx-auto mt-10">
+        <Alert variant="destructive" className="max-w-lg mx-auto">
           <ServerCrash className="h-4 w-4" />
-          <AlertTitle>Lỗi tải dữ liệu</AlertTitle>
+          <AlertTitle>Lỗi không thể tải dữ liệu</AlertTitle>
           <AlertDescription>
-            {fetchError || "Không tìm thấy sự kiện này."}
+            Không thể tìm thấy sự kiện hoặc đã có lỗi xảy ra. Vui lòng kiểm tra
+            lại ID sự kiện và thử lại.
           </AlertDescription>
-          <Button variant="outline" asChild className="mt-4">
-            <Link href="/admin/events">Quay lại danh sách</Link>
-          </Button>
         </Alert>
       </div>
     );
   }
-
-  return (
-    <div className="space-y-6">
-      <EventForm
-        initialData={initialEventData}
-        onSubmit={handleUpdateEvent}
-        isLoading={isSubmitting}
-        isEditMode={true}
-        categoryOptions={categoryOptions}
-        currentUserId={user?.id || ""}
-        currentUsername={user?.username || ""}
-        currentUserRole={user?.role || UserRole.ORGANIZER}
-        moderatorOptions={moderatorOptions}
-      />
-    </div>
-  );
 }

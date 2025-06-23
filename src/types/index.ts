@@ -260,6 +260,15 @@ export interface Seat {
   updatedAt: ISODateString;
 }
 
+export interface CreateVenueRequest {
+  name: string;
+  address: string;
+  city: string;
+  country: string;
+}
+
+export type UpdateVenueRequest = Partial<CreateVenueRequest>;
+
 // =========================================
 // Category
 // =========================================
@@ -344,6 +353,7 @@ export interface Ticket {
   price: number;
   saleStartDate?: ISODateString;
   saleEndDate?: ISODateString;
+  ticketSelectionMode?: TicketSelectionModeEnum;
 
   // For GA tickets
   totalQuantity?: number;
@@ -632,4 +642,40 @@ export interface SeatMapDesignerProps {
   isEditMode: boolean;
   initialData?: SeatMapDetails | null;
   onSave: (payload: SeatMapPayload) => Promise<void>;
+}
+
+export interface CreateSeatRequest {
+  rowLabel: string;
+  seatNumber: string;
+  seatType?: string;
+  // Tọa độ có thể được tạo tự động hoặc do người dùng định nghĩa
+  coordinates?: { x: number; y: number };
+}
+
+/**
+ * Dữ liệu cần thiết để tạo một khu vực (section) mới trong sơ đồ.
+ */
+export interface CreateSeatSectionRequest {
+  // `id` sẽ được tạo bởi backend, nên không có ở đây.
+  name: string;
+  capacity: number; // Thường được tính từ số lượng ghế.
+  layoutData?: Record<string, unknown>; // Dữ liệu JSONB cho layout nếu có
+
+  // Tùy chọn: Gửi chi tiết các ghế thuộc section này ngay lúc tạo
+  // Cách này phù hợp nếu trình thiết kế của bạn tạo ra toàn bộ cấu trúc 1 lần.
+  seats?: CreateSeatRequest[];
+}
+
+/**
+ * Payload hoàn chỉnh để gửi lên API khi tạo một Sơ đồ chỗ ngồi (Seat Map) mới.
+ * Đây là type chính bạn cần.
+ */
+export interface CreateSeatMapRequest {
+  // `id` sẽ được tạo bởi backend.
+  venueId: string; // ID của địa điểm chứa sơ đồ này.
+  name: string;
+  description?: string;
+
+  // Một mảng chứa thông tin của các khu vực (sections) mới cần tạo.
+  sections: CreateSeatSectionRequest[];
 }

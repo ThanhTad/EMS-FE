@@ -55,6 +55,8 @@ import {
   Seat,
   UpdateSeatMapRequest,
   EventSearchParams,
+  CreateVenueRequest,
+  UpdateVenueRequest,
 } from "@/types";
 
 const API = axios.create({
@@ -190,16 +192,14 @@ export const getVenueById = (id: string): Promise<Venue> =>
     (res) => res.data.data
   );
 
-export const createVenue = (
-  data: Omit<Venue, "id" | "createdAt" | "updatedAt">
-): Promise<Venue> =>
+export const createVenue = (data: CreateVenueRequest): Promise<Venue> =>
   API.post<ApiResponse<Venue>>("/api/v1/venues", data).then(
     (res) => res.data.data
   );
 
 export const updateVenue = (
   id: string,
-  data: Partial<Omit<Venue, "id" | "createdAt" | "updatedAt">>
+  data: UpdateVenueRequest
 ): Promise<Venue> =>
   API.put<ApiResponse<Venue>>(`/api/v1/venues/${id}`, data).then(
     (res) => res.data.data
@@ -306,6 +306,14 @@ export const getTicketsByEventId = (
   params?: { page?: number; size?: number }
 ): Promise<Paginated<Ticket>> =>
   API.get<ApiResponse<Paginated<Ticket>>>(`/api/v1/events/${eventId}/tickets`, {
+    params,
+  }).then((res) => res.data.data);
+
+export const getTicketsById = (
+  eventId: string,
+  params?: { page?: number; size?: number }
+): Promise<Ticket> =>
+  API.get<ApiResponse<Ticket>>(`/api/v1/events/${eventId}`, {
     params,
   }).then((res) => res.data.data);
 
@@ -571,3 +579,13 @@ export const downloadQrCode = async (purchaseId: string): Promise<void> => {
   link.parentNode?.removeChild(link);
   window.URL.revokeObjectURL(url);
 };
+
+export const getSectionsForEvent = (eventId: string): Promise<SeatSection[]> =>
+  API.get<ApiResponse<SeatSection[]>>(
+    `/api/v1/events/${eventId}/sections` // Giả sử backend có endpoint này
+  ).then((res) => res.data.data);
+
+export const adminGetOrganizers = (): Promise<User[]> =>
+  API.get<ApiResponse<User[]>>("/api/v1/admin/organizers").then(
+    (res) => res.data.data
+  );

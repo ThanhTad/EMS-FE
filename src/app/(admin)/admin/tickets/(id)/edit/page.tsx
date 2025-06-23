@@ -1,179 +1,97 @@
-// app/(admin)/tickets/(id)/edit/page.tsx
-"use client";
-
-import React, { useState, useEffect, useCallback } from "react";
-import TicketForm from "@/components/admin/tickets/TicketForm";
+// app/(admin)/tickets/[id]/edit/page.tsx
+import React from "react";
+import Link from "next/link";
+import { ServerCrash } from "lucide-react";
 import {
-  adminGetTicketById,
-  adminUpdateTicket,
+  getTicketsById,
   getEvents,
   getAllStatuses,
+  getSectionsForEvent, // <-- API mới cần thiết
 } from "@/lib/api";
-import { Ticket, Event, UpdateTicketRequest, StatusCode } from "@/types";
-import { toast } from "sonner";
-import { useRouter, useParams } from "next/navigation";
-import { Skeleton } from "@/components/ui/skeleton";
+import { StatusCode, TicketSelectionModeEnum } from "@/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ServerCrash } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
+import AdminEditTicketClient from "@/components/admin/tickets/AdminEditTicketClient";
+import TicketFormSkeleton from "@/components/shared/TicketFormSkeleton";
 
-// Skeleton cho form khi đang load initialData
-function TicketFormSkeleton() {
+type SelectOption = { value: string; label: string };
+
+interface PageProps {
+  params: { id: string };
+}
+
+// Đây là một Server Component bất đồng bộ
+export default async function AdminEditTicketPage({ params }: PageProps) {
+  const ticketId = params.id;
+
+  // Sử dụng Suspense để hiển thị skeleton trong khi dữ liệu đang được fetch
+  // Điều này cho phép trang render ngay lập tức và stream nội dung vào.
   return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <Skeleton className="h-8 w-1/2" />
-        <Skeleton className="h-4 w-3/4" />
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-16" />
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-          </div>
-        </div>
-      </CardContent>
-      <CardFooter className="flex justify-between">
-        <Skeleton className="h-10 w-28" />
-        <Skeleton className="h-10 w-36" />
-      </CardFooter>
-    </Card>
+    <React.Suspense fallback={<TicketFormSkeleton />}>
+      <EditTicketDataLoader ticketId={ticketId} />
+    </React.Suspense>
   );
 }
 
-export default function AdminEditTicketPage() {
-  const router = useRouter();
-  const params = useParams();
-  const ticketId = params.id as string;
+// Component con này cũng là Server Component để xử lý logic fetching
+async function EditTicketDataLoader({ ticketId }: { ticketId: string }) {
+  try {
+    // Fetch tất cả dữ liệu cần thiết song song
+    const [ticket, eventsPage, allStatuses] = await Promise.all([
+      getTicketsById(ticketId),
+      getEvents({ page: 0, size: 1000 }), // Vẫn cần xem xét combobox search cho tương lai
+      getAllStatuses(),
+    ]);
 
-  const [initialTicketData, setInitialTicketData] = useState<Ticket | null>(
-    null
-  );
-  const [isLoadingData, setIsLoadingData] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-
-  const [eventOptions, setEventOptions] = useState<
-    { id: string; name: string }[]
-  >([]);
-  const [statusOptions, setStatusOptions] = useState<
-    { id: number; name: string }[]
-  >([]);
-
-  // Fetch ticket data
-  const fetchTicketData = useCallback(async () => {
-    if (!ticketId) {
-      toast.error("Thiếu thông tin", {
-        description: "Không tìm thấy ID vé.",
-      });
-      setFetchError("Không tìm thấy ID vé.");
-      setIsLoadingData(false);
-      return;
+    // Nếu không có vé, hiển thị lỗi ngay
+    if (!ticket) {
+      throw new Error(`Không tìm thấy vé với ID: ${ticketId}`);
     }
-    setIsLoadingData(true);
-    setFetchError(null);
-    try {
-      const [ticketRes, eventsRes, allStatuses] = await Promise.all([
-        adminGetTicketById(ticketId),
-        getEvents({ page: 0, size: 1000 }),
-        getAllStatuses(),
-      ]);
-      setInitialTicketData(ticketRes);
-      setEventOptions(
-        (eventsRes?.content ?? []).map((e: Event) => ({
-          id: e.id,
-          name: e.title,
-        }))
-      );
-      setStatusOptions(
-        allStatuses
-          .filter((s: StatusCode) => s.entityType === "TICKET")
-          .map((s: StatusCode) => ({ id: s.id, name: s.status }))
-      );
-    } catch (error) {
-      let message = "Không thể tải dữ liệu vé.";
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      setFetchError(message);
-      toast.error("Lỗi", {
-        description: `Không thể tải dữ liệu cho vé ${ticketId}: ${message}`,
-      });
-    } finally {
-      setIsLoadingData(false);
-    }
-  }, [ticketId]);
 
-  useEffect(() => {
-    fetchTicketData();
-  }, [fetchTicketData]);
-
-  const handleUpdateTicket = async (data: UpdateTicketRequest) => {
-    if (!ticketId) {
-      toast.error("Lỗi xác thực", { description: "Vui lòng đăng nhập lại." });
-      return;
+    // Fetch danh sách sections cho sự kiện hiện tại của vé
+    let initialSectionOptions: SelectOption[] = [];
+    if (
+      ticket.eventId &&
+      ticket.ticketSelectionMode === TicketSelectionModeEnum.SEATED
+    ) {
+      const sections = await getSectionsForEvent(ticket.eventId);
+      initialSectionOptions = sections.map((section) => ({
+        value: section.id,
+        label: section.name,
+      }));
     }
-    setIsSubmitting(true);
-    try {
-      await adminUpdateTicket(ticketId, data);
-      toast.success("Thành công", {
-        description: "Thông tin vé đã được cập nhật.",
-      });
-      router.push("/admin/tickets");
-      router.refresh();
-    } catch (error) {
-      let message = "Không thể cập nhật vé.";
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      toast.error("Cập nhật thất bại", { description: message });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
-  if (isLoadingData) {
+    // Chuẩn bị các options cho dropdowns
+    const eventOptions: SelectOption[] = eventsPage.content.map((e) => ({
+      value: e.id,
+      label: e.title,
+    }));
+
+    const statusOptions: SelectOption[] = allStatuses
+      .filter((s: StatusCode) => s.entityType === "TICKET")
+      .map((s: StatusCode) => ({
+        value: String(s.id),
+        label: s.status,
+      }));
+
+    // Truyền tất cả dữ liệu đã được chuẩn bị xuống Client Component
     return (
-      <div className="space-y-6">
-        <TicketFormSkeleton />
-      </div>
+      <AdminEditTicketClient
+        initialTicketData={ticket}
+        eventOptions={eventOptions}
+        statusOptions={statusOptions}
+        initialSectionOptions={initialSectionOptions}
+      />
     );
-  }
-
-  if (fetchError || !initialTicketData) {
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Lỗi không xác định.";
     return (
-      <div className="container mx-auto px-4 py-8 md:py-12 flex justify-center">
+      <div className="container mx-auto px-4 py-8 flex justify-center">
         <Alert variant="destructive" className="max-w-md">
           <ServerCrash className="h-4 w-4" />
           <AlertTitle>Lỗi tải dữ liệu</AlertTitle>
-          <AlertDescription>
-            {fetchError || "Không tìm thấy vé này."}
-          </AlertDescription>
+          <AlertDescription>{errorMessage}</AlertDescription>
           <Button variant="outline" asChild className="mt-4">
             <Link href="/admin/tickets">Quay lại danh sách</Link>
           </Button>
@@ -181,17 +99,4 @@ export default function AdminEditTicketPage() {
       </div>
     );
   }
-
-  return (
-    <div className="space-y-6">
-      <TicketForm
-        initialData={initialTicketData}
-        onSubmit={handleUpdateTicket}
-        isLoading={isSubmitting}
-        isEditMode={true}
-        eventOptions={eventOptions}
-        statusOptions={statusOptions}
-      />
-    </div>
-  );
 }

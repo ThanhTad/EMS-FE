@@ -1,112 +1,145 @@
-// components/admin/events/EventTableColumns.tsx
+// components/admin/events/EventTableColumns.tsx (PHIÊN BẢN MỚI)
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-import { Event } from "@/types";
-import HighlightedText from "@/components/ui/highlighted-text";
-import { format } from "date-fns";
-import EventActionsCell from "./EventActionsCell";
+import { Event } from "@/types"; // Import các type cần thiết
+import { ArrowUpDown, MoreHorizontal } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns"; // Giả sử bạn có hàm định dạng ngày tháng
 
-const statusVariantMap: {
-  [key: string]: "default" | "secondary" | "destructive" | "outline";
-} = {
-  APPROVED: "default", // Màu xanh (mặc định của shadcn)
-  PENDING_APPROVAL: "secondary", // Màu xám
-  REJECTED: "destructive", // Màu đỏ
-};
+// Hàm không còn nhận tham số `keyword` nữa
+export const eventColumns: ColumnDef<Event>[] = [
+  // Cột Tiêu đề
+  {
+    accessorKey: "title",
+    header: ({ column }) => {
+      return (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Tiêu đề
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      );
+    },
+    cell: ({ row }) => {
+      const title: string = row.getValue("title");
+      // Bạn có thể thêm link ở đây nếu muốn
+      return <div className="font-medium">{title}</div>;
+    },
+  },
+  // Cột Trạng thái
+  {
+    accessorKey: "status",
+    header: "Trạng thái",
+    cell: ({ row }) => {
+      // Giả sử `status` là một object { id, status, entityType }
+      const status = row.original.status;
+      if (!status) return "-";
 
-export function eventColumns(keyword: string): ColumnDef<Event>[] {
-  return [
-    {
-      accessorKey: "title",
-      header: "Tiêu đề sự kiện",
-      cell: ({ row }) => (
-        <div className="font-medium">
-          <HighlightedText text={row.original.title} keyword={keyword} />
+      // Logic để chọn màu cho badge
+      const getStatusVariant = (statusString: string) => {
+        switch (statusString.toUpperCase()) {
+          case "APPROVED":
+          case "ACTIVE":
+            return "success";
+          case "PENDING_APPROVAL":
+            return "secondary";
+          case "REJECTED":
+          case "CANCELED":
+            return "destructive";
+          default:
+            return "outline";
+        }
+      };
+
+      return (
+        <Badge variant={getStatusVariant(status.status)}>{status.status}</Badge>
+      );
+    },
+  },
+  // Cột Ngày bắt đầu
+  {
+    accessorKey: "startDate",
+    header: "Thời gian",
+    cell: ({ row }) => {
+      const startDate = row.original.startDate
+        ? new Date(row.original.startDate)
+        : null;
+      const endDate = row.original.endDate
+        ? new Date(row.original.endDate)
+        : null;
+
+      if (!startDate || !endDate)
+        return <span className="text-muted-foreground">N/A</span>;
+
+      return (
+        <div className="text-sm">
+          <p>BĐ: {format(startDate, "dd/MM/yy HH:mm")}</p>
+          <p className="text-muted-foreground">
+            KT: {format(endDate, "dd/MM/yy HH:mm")}
+          </p>
         </div>
-      ),
+      );
     },
-    {
-      // Sửa lại: Dùng venue.name thay cho location
-      accessorKey: "venue.name",
-      header: "Địa điểm",
-      cell: ({ row }) =>
-        row.original.venue?.name ? (
-          <HighlightedText text={row.original.venue.name} keyword={keyword} />
-        ) : (
-          <span className="text-muted-foreground">N/A</span>
-        ),
+  },
+  // Cột Địa điểm
+  {
+    accessorKey: "venue",
+    header: "Địa điểm",
+    cell: ({ row }) => {
+      // Giả sử `venue` là một object { id, name }
+      const venue = row.original.venue;
+      return <div>{venue?.name || "N/A"}</div>;
     },
-    {
-      accessorKey: "categories",
-      header: "Danh mục",
-      cell: ({ row }) => {
-        const categories = row.original.categories ?? [];
-        if (!categories.length)
-          return <span className="text-muted-foreground">N/A</span>;
-        return (
-          <div className="flex flex-wrap gap-1">
-            {categories.map((cat) => (
-              <Badge key={cat.id} variant="secondary">
-                {cat.name}
-              </Badge>
-            ))}
-          </div>
-        );
-      },
-    },
-    {
-      // Sửa lại: Dùng creator thay cho organizer
-      accessorKey: "creator",
-      header: "Người tạo",
-      cell: ({ row }) =>
-        row.original.creator?.fullName ||
-        row.original.creator?.username || (
-          <span className="text-muted-foreground">N/A</span>
-        ),
-    },
-    {
-      accessorKey: "startDate",
-      header: "Thời gian",
-      cell: ({ row }) => {
-        const startDate = row.original.startDate
-          ? new Date(row.original.startDate)
-          : null;
-        const endDate = row.original.endDate
-          ? new Date(row.original.endDate)
-          : null;
+  },
+  // Cột Hành động (Actions)
+  {
+    id: "actions",
+    cell: ({ row }) => {
+      const event = row.original;
 
-        if (!startDate || !endDate)
-          return <span className="text-muted-foreground">N/A</span>;
-
-        return (
-          <div className="text-sm">
-            <p>BĐ: {format(startDate, "dd/MM/yy HH:mm")}</p>
-            <p className="text-muted-foreground">
-              KT: {format(endDate, "dd/MM/yy HH:mm")}
-            </p>
-          </div>
-        );
-      },
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-8 w-8 p-0">
+              <span className="sr-only">Mở menu</span>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Hành động</DropdownMenuLabel>
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/events/edit/${event.id}`}>Sửa sự kiện</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/admin/events/${event.id}/tickets`}>Quản lý vé</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => alert(`Xem chi tiết sự kiện ${event.id}`)}
+            >
+              Xem chi tiết
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-red-600"
+              onClick={() => alert(`Xóa sự kiện ${event.id}`)} // Thay alert bằng modal xác nhận
+            >
+              Xóa sự kiện
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
     },
-    {
-      accessorKey: "status",
-      header: "Trạng thái",
-      cell: ({ row }) => {
-        const status = row.original.status;
-        if (!status) return <span className="text-muted-foreground">N/A</span>;
-        // Giả sử có 1 map để đổi màu badge theo status
-        return (
-          <Badge variant={statusVariantMap[status.status] || "outline"}>
-            {status.status}
-          </Badge>
-        );
-      },
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => <EventActionsCell event={row.original} />,
-    },
-  ];
-}
+  },
+];

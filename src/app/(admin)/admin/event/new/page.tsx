@@ -1,75 +1,69 @@
 // app/(admin)/events/new/page.tsx
-"use client";
+import { getCategories, getVenues, adminGetOrganizers } from "@/lib/api";
+import { getAndVerifyServerSideUser } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { Category, User, UserRole, Venue } from "@/types";
+import CreateEventClientPage from "@/components/admin/events/CreateEventClientPage"; // <-- Component client sẽ được tạo ở bước 2
+import { Metadata } from "next";
 
-import React, { useState, useEffect } from "react";
-import EventForm from "@/components/admin/events/EventForm";
-import { useAuth } from "@/contexts/AuthContext";
-import { adminCreateEvent, getCategories, adminGetOrganizers } from "@/lib/api";
-import { Category, CreateEventRequest, User, UserRole } from "@/types";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+export const metadata: Metadata = {
+  title: "Tạo Sự kiện mới | Admin EMS",
+};
 
-export default function AdminCreateEventPage() {
-  const { user } = useAuth();
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-  const [categoryOptions, setCategoryOptions] = useState<Category[]>([]);
-  const [moderatorOptions, setModeratorOptions] = useState<User[]>([]);
-  const [loadingOptions, setLoadingOptions] = useState(true);
+export default async function AdminCreateEventPage() {
+  // 1. Xác thực và lấy thông tin người dùng từ server
+  const currentUser = await getAndVerifyServerSideUser();
 
-  // Lấy danh sách category và moderator (nếu là admin)
-  useEffect(() => {
-    const fetchOptions = async () => {
-      setLoadingOptions(true);
-      try {
-        const [categories, moderators] = await Promise.all([
-          getCategories(),
-          user?.role === UserRole.ADMIN
-            ? adminGetOrganizers()
-            : Promise.resolve([]),
-        ]);
-        setCategoryOptions(categories.content);
-        setModeratorOptions(moderators);
-      } catch {
-        toast.error("Không thể tải danh mục hoặc moderator.");
-      } finally {
-        setLoadingOptions(false);
-      }
-    };
-    fetchOptions();
-  }, [user?.role]);
+  if (!currentUser) {
+    redirect("/login?callbackUrl=/admin/events/new");
+  }
 
-  const handleCreateEvent = async (data: CreateEventRequest) => {
-    setIsLoading(true);
-    try {
-      await adminCreateEvent(data);
-      toast.success("Thành công", {
-        description: `Sự kiện ${data.title} đã được tạo.`,
-      });
-      router.push("/admin/events");
-    } catch (error) {
-      let message = "Không thể tạo sự kiện.";
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      toast.error("Tạo thất bại", { description: message });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Chỉ ADMIN hoặc ORGANIZER mới được tạo sự kiện
+  const canCreate =
+    currentUser.role === UserRole.ADMIN ||
+    currentUser.role === UserRole.ORGANIZER;
 
-  return (
-    <div className="space-y-6">
-      <EventForm
-        onSubmit={handleCreateEvent}
-        isLoading={isLoading || loadingOptions}
-        isEditMode={false}
-        categoryOptions={categoryOptions}
-        currentUserId={user?.id || ""}
-        currentUsername={user?.username || ""}
-        currentUserRole={user?.role || UserRole.ORGANIZER}
-        moderatorOptions={moderatorOptions}
+  if (!canCreate) {
+    redirect("/unauthorized");
+  }
+
+  // 2. Fetch toàn bộ dữ liệu cần thiết cho form ngay trên server
+  // Promise.all giúp các request chạy song song, tăng tốc độ tải
+  try {
+    const [categoriesData, venuesData, organizersData] = await Promise.all([
+      getCategories({ size: 1000 }), // Lấy tất cả categories
+      getVenues({ size: 1000 }), // Lấy tất cả venues
+      // Chỉ fetch organizers nếu là ADMIN
+      currentUser.role === UserRole.ADMIN
+        ? adminGetOrganizers()
+        : Promise.resolve([] as User[]), // Trả về mảng rỗng nếu là ORGANIZER
+    ]);
+
+    const categories: Category[] = categoriesData.content;
+    const venues: Venue[] = venuesData.content;
+    const organizers: User[] = organizersData;
+
+    // 3. Truyền dữ liệu đã fetch xuống Client Component qua props
+    return (
+      <CreateEventClientPage
+        initialCategories={categories}
+        initialVenues={venues}
+        initialOrganizers={organizers}
+        currentUser={currentUser}
       />
-    </div>
-  );
+    );
+  } catch (error) {
+    // Xử lý lỗi nếu không fetch được dữ liệu cần thiết
+    console.error("Failed to fetch initial data for event form:", error);
+    // Có thể hiển thị một trang lỗi ở đây
+    return (
+      <div>
+        <h1>Lỗi tải dữ liệu</h1>
+        <p>
+          Không thể tải các tài nguyên cần thiết để tạo sự kiện. Vui lòng thử
+          lại.
+        </p>
+      </div>
+    );
+  }
 }
