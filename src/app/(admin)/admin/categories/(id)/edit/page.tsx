@@ -1,56 +1,61 @@
 // app/(admin)/categories/(id)/edit/page.tsx
-"use client";
+import { getCategoryById } from "@/lib/api";
+import { getAndVerifyServerSideUser } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { UserRole } from "@/types";
+import EditCategoryClient from "@/components/admin/categories/EditCategoryClient"; // Component Client sẽ tạo ngay sau đây
+import { Metadata } from "next";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ListCollapse } from "lucide-react";
 
-import React, { useEffect, useState } from "react";
-import CategoryForm from "@/components/admin/categories/CategoryForm";
-import { adminGetCategoryById, adminUpdateCategory } from "@/lib/api";
-import { UpdateCategoryRequest, Category } from "@/types";
-import { useRouter, useParams } from "next/navigation";
-import { toast } from "sonner";
+// Metadata động
+export async function generateMetadata({
+  params,
+}: {
+  params: { id: string };
+}): Promise<Metadata> {
+  try {
+    const category = await getCategoryById(params.id);
+    return { title: `Sửa danh mục: ${category.name} | Admin EMS` };
+  } catch {
+    return { title: "Sửa danh mục | Admin EMS" };
+  }
+}
 
-export default function AdminEditCategoryPage() {
-  const router = useRouter();
-  const params = useParams();
-  const categoryId = params.id as string;
+interface AdminEditCategoryPageProps {
+  params: { id: string };
+}
 
-  const [initialData, setInitialData] = useState<Category | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+// Đây là một Server Component
+export default async function AdminEditCategoryPage({
+  params,
+}: AdminEditCategoryPageProps) {
+  const categoryId = params.id;
 
-  useEffect(() => {
-    if (!categoryId) return;
-    setIsLoading(true);
-    adminGetCategoryById(categoryId)
-      .then(setInitialData)
-      .catch(() => toast.error("Không thể tải danh mục"))
-      .finally(() => setIsLoading(false));
-  }, [categoryId]);
+  // 1. Bảo vệ route trên server
+  const user = await getAndVerifyServerSideUser();
+  if (!user || user.role !== UserRole.ADMIN) {
+    redirect("/unauthorized");
+  }
 
-  const handleUpdateCategory = async (data: UpdateCategoryRequest) => {
-    if (!categoryId) return;
-    setIsSubmitting(true);
-    try {
-      await adminUpdateCategory(categoryId, data);
-      toast.success("Cập nhật thành công");
-      router.push("/admin/categories");
-    } catch {
-      toast.error("Cập nhật thất bại");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  // 2. Fetch dữ liệu ban đầu trên server
+  try {
+    const initialCategory = await getCategoryById(categoryId);
 
-  if (isLoading) return <div>Đang tải...</div>;
-  if (!initialData) return <div>Không tìm thấy danh mục</div>;
-
-  return (
-    <div className="space-y-6">
-      <CategoryForm
-        initialData={initialData}
-        onSubmit={handleUpdateCategory}
-        isLoading={isSubmitting}
-        isEditMode={true}
-      />
-    </div>
-  );
+    // 3. Render component client và truyền dữ liệu xuống
+    return <EditCategoryClient initialData={initialCategory} />;
+  } catch (error) {
+    console.error(`Failed to fetch category ${categoryId}:`, error);
+    return (
+      <div className="p-6">
+        <Alert variant="destructive">
+          <ListCollapse className="h-4 w-4" />
+          <AlertTitle>Lỗi</AlertTitle>
+          <AlertDescription>
+            Không tìm thấy danh mục hoặc đã có lỗi xảy ra.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 }

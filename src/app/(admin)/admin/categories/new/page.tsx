@@ -1,37 +1,24 @@
 // app/(admin)/categories/new/page.tsx
-"use client";
 
-import React, { useState } from "react";
-import CategoryForm from "@/components/admin/categories/CategoryForm";
-import { adminCreateCategory } from "@/lib/api";
-import { CreateCategoryRequest } from "@/types";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { getAndVerifyServerSideUser } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { UserRole } from "@/types";
+import CreateCategoryClient from "@/components/admin/categories/CreateCategoryClient"; // Component Client sẽ tạo ngay sau đây
+import { Metadata } from "next";
 
-export default function AdminCreateCategoryPage() {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
+export const metadata: Metadata = {
+  title: "Tạo Danh mục mới | Admin EMS",
+};
 
-  const handleCreateCategory = async (data: CreateCategoryRequest) => {
-    setIsLoading(true);
-    try {
-      await adminCreateCategory(data);
-      toast.success("Tạo danh mục thành công");
-      router.push("/admin/categories");
-    } catch {
-      toast.error("Tạo danh mục thất bại");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+// Đây là một Server Component
+export default async function AdminCreateCategoryPage() {
+  // 1. Bảo vệ route trên server
+  const user = await getAndVerifyServerSideUser();
+  if (!user || user.role !== UserRole.ADMIN) {
+    redirect("/unauthorized");
+  }
 
-  return (
-    <div className="space-y-6">
-      <CategoryForm
-        onSubmit={handleCreateCategory}
-        isLoading={isLoading}
-        isEditMode={false}
-      />
-    </div>
-  );
+  // 2. Render component client
+  // Không cần truyền props gì vì không có dữ liệu ban đầu
+  return <CreateCategoryClient />;
 }

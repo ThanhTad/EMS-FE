@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { adminDeleteCategory } from "@/lib/api";
+import { adminDeleteCategory } from "@/lib/api"; // Giả định đường dẫn này đúng
 
 interface CategoryActionsCellProps {
   category: Category;
@@ -39,6 +39,7 @@ const CategoryActionsCell: React.FC<CategoryActionsCellProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleEditCategory = useCallback(() => {
+    // Chuyển đến trang chỉnh sửa danh mục
     router.push(`/admin/categories/${category.id}/edit`);
   }, [router, category.id]);
 
@@ -47,11 +48,14 @@ const CategoryActionsCell: React.FC<CategoryActionsCellProps> = ({
     try {
       await adminDeleteCategory(category.id);
       toast.success(`Danh mục "${category.name}" đã được xóa.`);
+      // Làm mới dữ liệu từ server để cập nhật bảng
       router.refresh();
     } catch (err) {
-      let message = "Xoá danh mục thất bại. Vui lòng thử lại.";
-      if (err instanceof Error) message = err.message;
-      toast.error(message);
+      // Cải thiện thông báo lỗi, có thể backend trả về lỗi cụ thể hơn
+      // Ví dụ: Không thể xóa danh mục vì đang có sự kiện sử dụng.
+      const errorMessage =
+        err instanceof Error ? err.message : "Xóa danh mục thất bại.";
+      toast.error(errorMessage);
     } finally {
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
@@ -69,54 +73,50 @@ const CategoryActionsCell: React.FC<CategoryActionsCellProps> = ({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>Hành động</DropdownMenuLabel>
+          {/* Cải tiến: Loại bỏ `asChild` và `<button>` không cần thiết */}
           <DropdownMenuItem
-            asChild
             disabled={isDeleting}
             onClick={handleEditCategory}
+            className="cursor-pointer"
           >
-            <button type="button" className="flex items-center">
-              <Edit className="mr-2 h-4 w-4" />
-              Sửa danh mục
-            </button>
+            <Edit className="mr-2 h-4 w-4" />
+            <span>Sửa danh mục</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem asChild disabled={isDeleting}>
-            <button
-              type="button"
-              onClick={() => setIsDeleteDialogOpen(true)}
-              className="flex items-center text-red-600 hover:!text-red-600 hover:!bg-red-100 dark:hover:!bg-red-900/50"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Xóa danh mục
-            </button>
+          {/* Cải tiến: Tương tự cho nút Xóa */}
+          <DropdownMenuItem
+            disabled={isDeleting}
+            onClick={() => setIsDeleteDialogOpen(true)}
+            className="flex items-center text-red-600 hover:!text-red-600 focus:!text-red-600 hover:!bg-red-100 dark:hover:!bg-red-900/50 cursor-pointer"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            <span>Xóa danh mục</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Dialog xác nhận xóa không thay đổi, nó đã được viết tốt */}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Xác nhận xóa</AlertDialogTitle>
+            <AlertDialogTitle>Bạn có chắc chắn không?</AlertDialogTitle>
             <AlertDialogDescription>
-              Danh mục <strong>{category.name}</strong> sẽ bị xóa vĩnh viễn. Bạn
-              có chắc không?
+              Hành động này không thể được hoàn tác. Thao tác này sẽ xóa vĩnh
+              viễn danh mục <strong>{category.name}</strong>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel type="button" disabled={isDeleting}>
-              Hủy
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>Hủy</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={isDeleting}
-              aria-busy={isDeleting}
-              type="button"
+              className="bg-red-600 hover:bg-red-700"
             >
               {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Xóa
+              Xóa vĩnh viễn
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

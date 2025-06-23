@@ -1,12 +1,7 @@
 // app/admin/venues/[venueId]/edit/page.tsx
-"use client";
-
-import { VenueForm } from "@/components/admin/venues/VenueForm";
-import { getVenueById, updateVenue } from "@/lib/api";
-import { Venue } from "@/types";
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { getVenueById } from "@/lib/api";
+import { notFound } from "next/navigation";
+import EditVenueClient from "@/components/admin/venues/EditVenueClient";
 
 interface EditVenuePageProps {
   params: {
@@ -14,49 +9,21 @@ interface EditVenuePageProps {
   };
 }
 
-const EditVenuePage = ({ params }: EditVenuePageProps) => {
+// Biến page thành một hàm async
+export default async function EditVenuePage({ params }: EditVenuePageProps) {
   const { venueId } = params;
-  const [venue, setVenue] = useState<Venue | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchVenue = async () => {
-      try {
-        const data = await getVenueById(venueId);
-        setVenue(data);
-      } catch (error) {
-        if (error instanceof Error) {
-          toast.error(`Lỗi: ${error.message}`);
-        }
-        toast.error("Không thể tải thông tin địa điểm.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchVenue();
-  }, [venueId]);
+  try {
+    // 1. Fetch dữ liệu trực tiếp trên server
+    const venue = await getVenueById(venueId);
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
+    // 2. Nếu thành công, render Client Component và truyền dữ liệu xuống làm props
+    // Không cần useState, useEffect, hay isLoading nữa!
+    return <EditVenueClient initialVenue={venue} />;
+  } catch (error) {
+    // 3. Nếu API getVenueById ném lỗi (ví dụ 404),
+    // hàm notFound() của Next.js sẽ tự động render file not-found.tsx gần nhất.
+    console.error("Failed to fetch venue for editing:", error);
+    notFound();
   }
-
-  if (!venue) {
-    return <div className="text-center">Không tìm thấy địa điểm.</div>;
-  }
-
-  const handleUpdate = (
-    data: Omit<Venue, "id" | "createdAt" | "updatedAt">
-  ) => {
-    return updateVenue(venue.id, data);
-  };
-
-  return (
-    <VenueForm isEditMode={true} initialData={venue} onSubmit={handleUpdate} />
-  );
-};
-
-export default EditVenuePage;
+}

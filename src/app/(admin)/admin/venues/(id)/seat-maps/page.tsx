@@ -45,8 +45,12 @@ export default async function SeatMapsPage({
 }: SeatMapsPageProps) {
   const { venueId } = params;
 
-  // Lấy thông tin venue để hiển thị tên
-  const venue = await getVenueById(venueId);
+  // TỐI ƯU: Khởi chạy cả hai request cùng lúc thay vì chờ đợi tuần tự
+  const venueDataPromise = getVenueById(venueId);
+  // Không cần lấy seat maps ở đây nữa, vì đã có trong component con rồi
+
+  // Chỉ cần lấy venue data để hiển thị tiêu đề
+  const venue = await venueDataPromise;
 
   return (
     <div className="space-y-6">

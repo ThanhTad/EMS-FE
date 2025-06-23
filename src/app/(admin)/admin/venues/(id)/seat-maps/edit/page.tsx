@@ -1,84 +1,54 @@
 // app/admin/venues/[venueId]/seat-maps/[seatMapId]/edit/page.tsx
-"use client";
 
-import SeatMapDesigner from "@/components/admin/venues/seat-maps/SeatMapDesigner";
-import { getSeatMapDetails, updateSeatMap } from "@/lib/api";
-import { SeatMapDetails, SeatMapPayload, UpdateSeatMapRequest } from "@/types"; // <--- IMPORT KIỂU DỮ LIỆU
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { getSeatMapDetails } from "@/lib/api";
+import { notFound } from "next/navigation";
+import EditSeatMapClient from "@/components/admin/venues/seat-maps/EditSeatMapClient"; // <-- Component client mới
+import { Metadata } from "next";
 
 interface EditSeatMapPageProps {
   params: {
-    venueId: string; // venueId có thể không cần thiết ở đây, nhưng giữ lại cũng không sao
     seatMapId: string;
   };
 }
 
-const EditSeatMapPage = ({ params }: EditSeatMapPageProps) => {
+// Metadata động
+export async function generateMetadata({
+  params,
+}: EditSeatMapPageProps): Promise<Metadata> {
+  try {
+    const seatMap = await getSeatMapDetails(params.seatMapId);
+    return {
+      title: `Thiết kế Sơ đồ: ${seatMap.name} | Admin EMS`,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("404")) {
+      return {
+        title: "Không tìm thấy sơ đồ | Admin EMS",
+        description: "Không thể tải sơ đồ để chỉnh sửa.",
+      };
+    }
+    return {
+      title: "Thiết kế Sơ đồ | Admin EMS",
+    };
+  }
+}
+
+// Biến page thành một hàm async
+export default async function EditSeatMapPage({
+  params,
+}: EditSeatMapPageProps) {
   const { seatMapId } = params;
-  const [initialData, setInitialData] = useState<SeatMapDetails | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchDetails = async () => {
-      setIsLoading(true);
-      try {
-        const data = await getSeatMapDetails(seatMapId);
-        setInitialData(data);
-      } catch (error) {
-        if (error instanceof Error) {
-          toast.error(`Lỗi: ${error.message}`);
-        }
-        toast.error("Không thể tải chi tiết sơ đồ.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchDetails();
-  }, [seatMapId]);
+  try {
+    // 1. Fetch dữ liệu chi tiết sơ đồ trên server
+    const seatMapDetails = await getSeatMapDetails(seatMapId);
 
-  // Sửa lại kiểu của tham số ở đây
-  const handleSave = async (payload: UpdateSeatMapRequest) => {
-    // Hàm API updateSeatMap(id, payload) đã phù hợp
-    await updateSeatMap(seatMapId, payload);
-  };
-
-  // Adapter chuyển kiểu dữ liệu
-  const handleSaveAdapter = async (payload: SeatMapPayload) => {
-    const updateRequest: UpdateSeatMapRequest = {
-      ...payload,
-      sections: payload.sections.map((section) => ({
-        ...section,
-        capacity: section.seats.length, // hoặc logic capacity phù hợp
-      })),
-    };
-    await handleSave(updateRequest);
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
-      </div>
-    );
+    // 2. Render Client Component và truyền dữ liệu xuống
+    // Toàn bộ logic loading, state, useEffect đã được loại bỏ!
+    return <EditSeatMapClient initialData={seatMapDetails} />;
+  } catch (error) {
+    // 3. Xử lý trường hợp không tìm thấy sơ đồ
+    console.error(`Seat map with id ${seatMapId} not found.`, error);
+    notFound();
   }
-
-  if (!initialData) {
-    return (
-      <div className="text-center mt-10">Không tìm thấy dữ liệu sơ đồ.</div>
-    );
-  }
-
-  return (
-    <div className="w-full h-screen">
-      <SeatMapDesigner
-        isEditMode={true}
-        onSave={handleSaveAdapter}
-        initialData={initialData}
-      />
-    </div>
-  );
-};
-
-export default EditSeatMapPage;
+}

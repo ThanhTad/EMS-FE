@@ -1,90 +1,47 @@
 // app/(admin)/categories/page.tsx
-"use client";
 
-import React, { useEffect, useState } from "react";
-import { getCategories, adminDeleteCategory } from "@/lib/api";
-import { Category } from "@/types";
-import Link from "next/link";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { getCategories } from "@/lib/api";
+import { getAndVerifyServerSideUser } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { UserRole } from "@/types";
+import CategoriesClient from "@/components/admin/categories/CategoriesClient";
+import { Metadata } from "next";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ListCollapse } from "lucide-react";
 
-export default function AdminCategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+export const metadata: Metadata = {
+  title: "Quản lý Danh mục | Admin EMS",
+  description: "Thêm, sửa, xóa các danh mục sự kiện.",
+};
 
-  const fetchCategories = async () => {
-    setLoading(true);
-    try {
-      const data = await getCategories();
-      setCategories(data.content);
-    } catch {
-      toast.error("Không thể tải danh mục.");
-    } finally {
-      setLoading(false);
-    }
-  };
+export default async function AdminCategoriesPage() {
+  // 1. Bảo vệ route trên Server
+  const user = await getAndVerifyServerSideUser();
+  // Chỉ ADMIN mới được quản lý danh mục
+  if (!user || user.role !== UserRole.ADMIN) {
+    redirect("/unauthorized");
+  }
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
+  // 2. Fetch dữ liệu ban đầu trên Server
+  try {
+    const initialCategoriesData = await getCategories({ size: 1000 }); // Lấy hết
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Bạn chắc chắn muốn xóa danh mục này?")) return;
-    setDeletingId(id);
-    try {
-      await adminDeleteCategory(id);
-      toast.success("Đã xóa danh mục.");
-      fetchCategories();
-    } catch {
-      toast.error("Xóa danh mục thất bại.");
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-xl font-bold">Quản lý danh mục</h1>
-        <Button asChild>
-          <Link href="/admin/categories/new">Tạo danh mục</Link>
-        </Button>
+    // 3. Truyền dữ liệu xuống Client Component
+    return (
+      <CategoriesClient initialCategories={initialCategoriesData.content} />
+    );
+  } catch (error) {
+    console.error("Failed to fetch categories on server:", error);
+    return (
+      <div className="p-6">
+        <Alert variant="destructive">
+          <ListCollapse className="h-4 w-4" />
+          <AlertTitle>Lỗi</AlertTitle>
+          <AlertDescription>
+            Không thể tải danh sách danh mục từ máy chủ. Vui lòng thử lại sau.
+          </AlertDescription>
+        </Alert>
       </div>
-      {loading ? (
-        <div>Đang tải...</div>
-      ) : (
-        <table className="w-full border">
-          <thead>
-            <tr>
-              <th className="border px-2 py-1">Tên danh mục</th>
-              <th className="border px-2 py-1">Mô tả</th>
-              <th className="border px-2 py-1">Hành động</th>
-            </tr>
-          </thead>
-          <tbody>
-            {categories.map((cat) => (
-              <tr key={cat.id}>
-                <td className="border px-2 py-1">{cat.name}</td>
-                <td className="border px-2 py-1">{cat.description}</td>
-                <td className="border px-2 py-1">
-                  <Button asChild variant="outline" size="sm" className="mr-2">
-                    <Link href={`/admin/categories/${cat.id}/edit`}>Sửa</Link>
-                  </Button>
-                  <Button
-                    onClick={() => handleDelete(cat.id)}
-                    variant="destructive"
-                    size="sm"
-                    disabled={deletingId === cat.id}
-                  >
-                    Xóa
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
+    );
+  }
 }

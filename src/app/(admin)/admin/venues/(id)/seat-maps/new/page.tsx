@@ -1,9 +1,8 @@
 // app/admin/venues/[venueId]/seat-maps/new/page.tsx
-"use client";
-
-import SeatMapDesigner from "@/components/admin/venues/seat-maps/SeatMapDesigner";
-import { createSeatMap } from "@/lib/api";
-import { SeatMapPayload } from "@/types"; // <--- IMPORT KIỂU DỮ LIỆU
+import NewSeatMapClient from "@/components/admin/venues/seat-maps/NewSeatMapClient";
+import { getVenueById } from "@/lib/api";
+import { notFound } from "next/navigation";
+import { Metadata } from "next";
 
 interface NewSeatMapPageProps {
   params: {
@@ -11,24 +10,37 @@ interface NewSeatMapPageProps {
   };
 }
 
-const NewSeatMapPage = ({ params }: NewSeatMapPageProps) => {
-  // Sửa lại kiểu của tham số ở đây
-  const handleSave = async (payload: SeatMapPayload) => {
-    // API createSeatMap cần được cập nhật để nhận vào một object
-    // chứa cả venueId và dữ liệu từ payload
-    const fullPayload = {
-      ...payload,
-      venueId: params.venueId, // Gắn venueId vào payload
+export async function generateMetadata({
+  params,
+}: NewSeatMapPageProps): Promise<Metadata> {
+  try {
+    const venue = await getVenueById(params.venueId);
+    return {
+      title: `Tạo Sơ đồ mới cho ${venue.name} | Admin EMS`,
     };
-    // Giả sử API createSeatMap chấp nhận payload như vậy
-    await createSeatMap(fullPayload);
-  };
+  } catch {
+    return {
+      title: "Tạo Sơ đồ mới | Admin EMS",
+    };
+  }
+}
 
-  return (
-    <div className="w-full h-screen">
-      <SeatMapDesigner isEditMode={false} onSave={handleSave} />
-    </div>
-  );
-};
+export default async function NewSeatMapPage({ params }: NewSeatMapPageProps) {
+  const { venueId } = params;
 
-export default NewSeatMapPage;
+  // LỢI ÍCH 1: Xác thực venueId tồn tại ở phía server
+  try {
+    // Chỉ cần gọi để kiểm tra, không cần dùng data
+    await getVenueById(venueId);
+  } catch (error) {
+    console.error(
+      `Venue with id ${venueId} not found. Cannot create seat map.`,
+      error
+    );
+    notFound();
+  }
+
+  // LỢI ÍCH 2: Cấu trúc nhất quán với trang edit
+  // Truyền venueId xuống cho client component
+  return <NewSeatMapClient venueId={venueId} />;
+}

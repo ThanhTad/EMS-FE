@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import UserForm from "@/components/admin/users/UserForm";
-import { adminGetUserById, adminUpdateUser } from "@/lib/api";
+import { getUserProfile, adminUpdateUser } from "@/lib/api";
 import { User, AdminUpdateUserRequest } from "@/types";
 import { toast } from "sonner";
 import { useRouter, useParams } from "next/navigation";
@@ -83,7 +83,7 @@ export default function AdminEditUserPage() {
     setIsLoadingData(true);
     setFetchError(null);
     try {
-      const response = await adminGetUserById(userId);
+      const response = await getUserProfile(userId);
       setInitialUserData(response);
     } catch (error) {
       let message = "Không thể tải dữ liệu người dùng.";

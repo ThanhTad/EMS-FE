@@ -1,7 +1,6 @@
 // components/admin/venues/VenueForm.tsx
 "use client";
 
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -20,32 +19,29 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Save, ArrowLeft, MapPin } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 
 const venueSchema = z.object({
   name: z.string().min(3, "Tên phải có ít nhất 3 ký tự.").max(255),
-  address: z.string().max(255).optional(),
-  city: z.string().max(100).optional(),
-  country: z.string().max(100).optional(),
+  address: z.string().max(255).or(z.literal("")), // Cho phép chuỗi rỗng
+  city: z.string().max(100).or(z.literal("")),
+  country: z.string().max(100).or(z.literal("")),
 });
 
-type VenueFormValues = z.infer<typeof venueSchema>;
+export type VenueFormValues = z.infer<typeof venueSchema>;
 
 interface VenueFormProps {
   initialData?: Venue | null;
-  onSubmit: (data: VenueFormValues) => Promise<Venue>;
+  onSubmit: (data: VenueFormValues) => void; // <-- THAY ĐỔI 1: Chỉ cần gọi, không cần promise
+  isLoading: boolean; // <-- THAY ĐỔI 2: Nhận isLoading từ cha
   isEditMode: boolean;
 }
 
 export const VenueForm: React.FC<VenueFormProps> = ({
   initialData,
   onSubmit,
+  isLoading, // Nhận từ props
   isEditMode,
 }) => {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-
   const form = useForm<VenueFormValues>({
     resolver: zodResolver(venueSchema),
     defaultValues: {
@@ -56,28 +52,11 @@ export const VenueForm: React.FC<VenueFormProps> = ({
     },
   });
 
-  const handleFormSubmit = async (values: VenueFormValues) => {
-    setIsLoading(true);
-    try {
-      await onSubmit(values);
-      toast.success(
-        isEditMode
-          ? "Cập nhật địa điểm thành công!"
-          : "Tạo địa điểm thành công!"
-      );
-      router.push("/admin/venues");
-      router.refresh();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Đã xảy ra lỗi.";
-      toast.error(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // KHÔNG CẦN handleFormSubmit phức tạp nữa, chỉ cần gọi onSubmit
   return (
     <Card className="w-full max-w-2xl mx-auto">
-      <form onSubmit={form.handleSubmit(handleFormSubmit)}>
+      {/* THAY ĐỔI 3: form.handleSubmit sẽ trực tiếp gọi prop onSubmit */}
+      <form onSubmit={form.handleSubmit(onSubmit)}>
         <CardHeader>
           <CardTitle className="text-2xl flex items-center gap-2">
             <MapPin />
@@ -90,6 +69,7 @@ export const VenueForm: React.FC<VenueFormProps> = ({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* ... (Nội dung form không đổi) ... */}
           <div className="space-y-2">
             <Label htmlFor="name">Tên địa điểm *</Label>
             <Input
