@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
-import { Toaster } from "@/components/ui/sonner"; // Thêm nếu dùng sonner
+import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ChatProvider } from "@/contexts/ChatContext";
+import { ChatWidget } from "@/components/chatbot/ChatWidget";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -27,7 +29,12 @@ export default function RootLayout({
         )}
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <AuthProvider> {children}</AuthProvider>
+          <AuthProvider>
+            <ChatProvider>
+              {children}
+              <ChatWidget />
+            </ChatProvider>
+          </AuthProvider>
         </ThemeProvider>
         <Toaster />
       </body>

@@ -21,7 +21,6 @@ import {
   AdminCreateUserRequest,
   AdminUpdateUserRequest,
   AdminResetPasswordRequest,
-  AuthUser,
 
   // Venue & Seating
   Venue,
@@ -52,16 +51,24 @@ import {
   UserSettings,
   UpdateUserSettingsRequest,
   EventDiscussion,
-  Seat,
   UpdateSeatMapRequest,
   EventSearchParams,
   CreateVenueRequest,
   UpdateVenueRequest,
+  ZoneWithTicketsDTO,
+  SeatMapDetail,
+  PaymentDetails,
+  TicketPurchaseConfirmation,
+  EventTicketingDetails,
+  TicketHoldRequest,
+  HoldResponse,
+  DialogflowRequest,
+  DialogflowResponse,
 } from "@/types";
 
 const API = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
-  withCredentials: true, // Crucial for sending cookies
+  withCredentials: true,
 });
 
 // =========================================
@@ -90,10 +97,8 @@ export const registerAPI = (
 export const logoutAPI = (): Promise<AxiosResponse> =>
   API.post("/api/v1/auth/logout");
 
-export const getCurrentUserAPI = (): Promise<AuthUser> =>
-  API.get<ApiResponse<AuthUser>>("/api/v1/auth/me").then(
-    (res) => res.data.data
-  );
+export const getCurrentUserAPI = (): Promise<User> =>
+  API.get<ApiResponse<User>>("/api/v1/auth/me").then((res) => res.data.data);
 
 // --- Password Reset ---
 export const requestPasswordResetAPI = (
@@ -158,7 +163,7 @@ export const updateUserProfile = (
   userId: string,
   payload: Partial<User>
 ): Promise<User> =>
-  API.put<ApiResponse<User>>(`/api/v1/users/${userId}/profile`, payload).then(
+  API.put<ApiResponse<User>>(`/api/v1/users/${userId}`, payload).then(
     (res) => res.data.data
   );
 
@@ -220,12 +225,17 @@ export const getSeatMapsByVenue = (
     { params }
   ).then((res) => res.data.data);
 
-export const getSeatMapDetails = (
-  id: string
-): Promise<SeatMap & { sections: (SeatSection & { seats: Seat[] })[] }> =>
-  API.get<
-    ApiResponse<SeatMap & { sections: (SeatSection & { seats: Seat[] })[] }>
-  >(`/api/v1/seat-maps/${id}/details`).then((res) => res.data.data);
+export const getZonedTicketsForEvent = (
+  eventId: string
+): Promise<ZoneWithTicketsDTO[]> =>
+  API.get<ApiResponse<ZoneWithTicketsDTO[]>>(
+    `/api/v1/events/${eventId}/zoned-tickets`
+  ).then((res) => res.data.data);
+
+export const getSeatMapDetails = (seatMapId: string): Promise<SeatMapDetail> =>
+  API.get<ApiResponse<SeatMapDetail>>(
+    `/api/v1/seat-maps/${seatMapId}/details`
+  ).then((res) => res.data.data);
 
 export const createSeatMap = (
   data: Omit<SeatMap, "id" | "createdAt" | "updatedAt">
@@ -395,17 +405,22 @@ export const deleteDiscussion = (id: string): Promise<void> =>
 // =========================================
 // Notifications & Settings
 // =========================================
-export const getUnreadNotifications = (
-  page = 0,
-  size = 10
-): Promise<Paginated<Notification>> =>
+export const getUserNotifications = (params: {
+  page?: number;
+  size?: number;
+}): Promise<Paginated<Notification>> =>
   API.get<ApiResponse<Paginated<Notification>>>(
-    "/api/v1/notifications/unread",
-    { params: { page, size } }
+    "/api/v1/notifications", // Endpoint chính: GET /api/v1/notifications
+    { params }
   ).then((res) => res.data.data);
 
-export const markNotificationsRead = (ids: string[]): Promise<void> =>
-  API.post("/api/v1/notifications/mark-read", { ids });
+export const getUnreadNotificationCount = (): Promise<number> =>
+  API.get<ApiResponse<number>>(
+    "/api/v1/notifications/unread-count" // Endpoint đếm
+  ).then((res) => res.data.data);
+
+export const markNotificationsAsRead = (ids: string[]): Promise<void> =>
+  API.post("/api/v1/notifications/mark-as-read", { ids });
 
 export const getUserSettings = (): Promise<UserSettings> =>
   API.get<ApiResponse<UserSettings>>("/api/v1/users/me/settings").then(
@@ -619,14 +634,132 @@ export const adminGetTickets = (
     params,
   }).then((res) => res.data.data);
 
-export interface NotificationsResponse {
-  unreadCount: number;
-  notifications: Paginated<Notification>;
-}
+export const adminGetEventsByStatus = (
+  status: string,
+  params: { page?: number; size?: number }
+): Promise<Paginated<Event>> =>
+  API.get<ApiResponse<Paginated<Event>>>(`/api/v1/admin/events`, {
+    params: { ...params, status }, // Thêm status vào query params
+  }).then((res) => res.data.data);
 
-// Hàm API mới, gọi một endpoint BE được thiết kế để trả về cả 2
-// Nếu BE không thể làm, bạn có thể dùng Promise.all ở đây
-export const getNotificationsSummary = (): Promise<NotificationsResponse> =>
-  API.get<ApiResponse<NotificationsResponse>>(
-    "/api/v1/notifications/summary"
+/**
+ * [ADMIN] Duyệt một sự kiện.
+ * @param eventId - ID của sự kiện cần duyệt
+ * @returns Thông tin sự kiện đã được cập nhật
+ */
+export const adminApproveEvent = (eventId: string): Promise<Event> =>
+  API.patch<ApiResponse<Event>>(`/api/v1/admin/events/${eventId}/approve`).then(
+    (res) => res.data.data
+  );
+
+/**
+ * [ADMIN] Từ chối một sự kiện.
+ * @param eventId - ID của sự kiện cần từ chối
+ * @param payload - Dữ liệu chứa lý do từ chối { reason: string }
+ * @returns Thông tin sự kiện đã được cập nhật
+ */
+export const adminRejectEvent = (eventId: string): Promise<Event> =>
+  API.patch<ApiResponse<Event>>(`/api/v1/admin/events/${eventId}/reject`).then(
+    (res) => res.data.data
+  );
+
+/**
+ * Lấy tất cả thông tin sự kiện và vé trong một lần gọi duy nhất.
+ * @param slug - Slug của sự kiện
+ * @returns - Dữ liệu chi tiết của sự kiện và vé
+ */
+export const getEventTicketingBySlug = (
+  slug: string
+): Promise<EventTicketingDetails> =>
+  API.get<ApiResponse<EventTicketingDetails>>(
+    `/api/v1/ticketing/events/slug/${slug}`
   ).then((res) => res.data.data);
+
+// --- HOLD & CHECKOUT APIs ---
+
+/**
+ * Gửi yêu cầu giữ vé tạm thời.
+ * @param eventId - ID của sự kiện
+ * @param payload - Dữ liệu yêu cầu giữ vé
+ * @returns - ID và thời gian hết hạn của phiên giữ vé
+ */
+export const holdTicketsAPI = (
+  eventId: string,
+  payload: TicketHoldRequest
+): Promise<HoldResponse> =>
+  API.post<ApiResponse<HoldResponse>>(
+    `/api/v1/ticketing/events/${eventId}/hold`,
+    payload
+  ).then((res) => res.data.data);
+
+/**
+ * Gửi yêu cầu nhả vé đã giữ.
+ * @param holdId - ID của phiên giữ vé
+ */
+export const releaseTicketsAPI = (holdId: string): Promise<void> =>
+  API.post(`/api/v1/ticketing/release?holdId=${holdId}`).then(
+    (res) => res.data.data
+  );
+
+/**
+ * Gửi yêu cầu thanh toán và chốt đơn.
+ * @param holdId - ID của phiên giữ vé
+ * @param payload - Chi tiết thanh toán
+ * @returns - Xác nhận đơn hàng đã mua
+ */
+export const checkoutAPI = (
+  holdId: string,
+  payload: PaymentDetails
+): Promise<TicketPurchaseConfirmation> =>
+  API.post<ApiResponse<TicketPurchaseConfirmation>>(
+    `/api/v1/ticketing/checkout?holdId=${holdId}`,
+    payload
+  ).then((res) => res.data.data);
+
+const apiClient = axios.create({
+  // Không cần baseURL vì API Route của Next.js là một đường dẫn tương đối
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+/**
+ * Gửi một tin nhắn từ người dùng đến Backend-for-Frontend (BFF) của chúng ta.
+ * BFF sẽ chịu trách nhiệm gọi đến Dialogflow một cách an toàn.
+ *
+ * @param request - Đối tượng chứa text và sessionId của người dùng.
+ * @returns Một Promise chứa câu trả lời từ chatbot.
+ */
+export const sendChatMessageToApi = async (
+  request: DialogflowRequest
+): Promise<DialogflowResponse> => {
+  try {
+    // 1. GỌI ĐẾN ENDPOINT BFF MÀ BẠN ĐÃ TẠO
+    // Frontend chỉ cần biết đến endpoint này.
+    const response = await apiClient.post<DialogflowResponse>(
+      "/api/chat/query",
+      request
+    );
+
+    // 2. TRẢ VỀ DỮ LIỆU ĐÃ ĐƯỢC BFF XỬ LÝ
+    // BFF đã làm hết việc khó (gọi Dialogflow, xử lý lỗi),
+    // nên chúng ta chỉ cần trả về `data` của nó.
+    return response.data;
+  } catch (error) {
+    console.error("Error sending message via BFF:", error);
+
+    // Xử lý lỗi một cách thân thiện hơn
+    if (axios.isAxiosError(error) && error.response) {
+      // Nếu BFF trả về một lỗi có cấu trúc, hãy dùng nó
+      const errorMessage =
+        error.response.data?.error ||
+        "An error occurred while connecting to the chat service.";
+      throw new Error(errorMessage);
+    }
+
+    // Lỗi mạng hoặc lỗi không xác định khác
+    throw new Error(
+      "Unable to connect to the chat service. Please check your network connection."
+    );
+  }
+};
