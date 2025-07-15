@@ -2,6 +2,8 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { format, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
+import { TicketHoldRequest } from "@/types";
+import { useCartStore } from "@/stores/cartStore";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -110,4 +112,30 @@ export function formatISODate(
     console.error("Invalid date format:", isoDateString);
     return "Invalid Date";
   }
+}
+
+export function createHoldRequestDTOFromCart(): TicketHoldRequest {
+  const { items, event } = useCartStore.getState();
+
+  if (!event) {
+    throw new Error("Event is not set in the cart.");
+  }
+
+  const gaItems: { ticketId: string; quantity: number }[] = [];
+  const seatIds: string[] = [];
+
+  for (const item of items.values()) {
+    if (item.type === "GA") {
+      gaItems.push({ ticketId: item.ticket.id, quantity: item.quantity });
+    } else {
+      // SEATED
+      seatIds.push(item.seat.id);
+    }
+  }
+
+  return {
+    selectionMode: event.ticketSelectionMode,
+    gaItems: gaItems,
+    seatIds: seatIds,
+  };
 }

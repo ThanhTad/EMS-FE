@@ -90,6 +90,9 @@ export interface User extends BaseEntity {
 export type AuthUser = Omit<User, "status"> | null;
 
 export interface UserProfileUpdateRequest {
+  email?: string; // thêm
+  username?: string;
+  id?: string; // Optional, used for updates
   fullName?: string;
   phone?: string;
   avatarUrl?: string;
@@ -136,7 +139,7 @@ export interface AuthResponse {
   accessTokenExpiresIn?: number;
   twoFactorEnabled?: boolean;
   challengeToken?: string;
-  user?: User;
+  user: User;
 }
 
 // ... Các types khác của Auth Flow (ResetOtpResponse, RefreshTokenRequest, etc.) giữ nguyên ...
@@ -254,7 +257,7 @@ export interface Seat {
   sectionId: string;
   rowLabel: string;
   seatNumber: string;
-  seatType?: string;
+  seatType: string;
   coordinates?: SeatCoordinates; // jsonb
   createdAt: ISODateString;
   updatedAt: ISODateString;
@@ -290,8 +293,9 @@ export interface CategoryRequest {
 // =========================================
 
 export enum TicketSelectionModeEnum {
-  GENERAL_ADMISSION = "GENERAL_ADMISSION", // Vé phổ thông, không chọn chỗ
-  SEATED = "SEATED", // Sự kiện có sơ đồ chỗ ngồi
+  GENERAL_ADMISSION = "GENERAL_ADMISSION",
+  ZONED_ADMISSION = "ZONED_ADMISSION",
+  RESERVED_SEATING = "RESERVED_SEATING",
 }
 
 export interface Event {
@@ -394,10 +398,10 @@ export type UpdateTicketRequest = Partial<Omit<CreateTicketRequest, "eventId">>;
 // =========================================
 
 export enum EventSeatStatusEnum {
-  AVAILABLE = "available",
-  HELD = "held",
-  SOLD = "sold",
-  RESERVED = "reserved",
+  AVAILABLE = "AVAILABLE",
+  HELD = "HELD",
+  SOLD = "SOLD",
+  RESERVED = "RESERVED",
 }
 
 /** Represents a specific seat's status for a specific event */
@@ -407,10 +411,10 @@ export interface EventSeatStatus {
   seatId: string;
   status: EventSeatStatusEnum;
   ticketPurchaseId?: string;
-  ticketId?: string; // The ticket type/price applied to this seat
+  ticketId?: string;
   priceAtPurchase?: number;
   heldUntil?: ISODateString;
-  seat?: Seat; // Populated from backend
+  seat: Seat;
 }
 
 /** Represents a purchase of General Admission tickets */
@@ -524,18 +528,21 @@ export interface EventParticipant {
   user?: Pick<User, "id" | "username">;
 }
 
+// Lớp con cho thông tin sự kiện liên quan
+export interface NotificationRelatedEvent {
+  id: string;
+  title: string;
+  slug: string;
+  coverImageUrl?: string;
+}
+
 export interface Notification {
   id: string;
-  userId: string;
+  type: string;
   content: string;
-  relatedEvent?: {
-    id: string;
-    title: string;
-    slug: string;
-  } | null;
-  type?: string;
   read: boolean;
   createdAt: ISODateString;
+  relatedEvent: NotificationRelatedEvent | null;
 }
 
 export type ThemeOption = "light" | "dark" | "system";
@@ -682,4 +689,301 @@ export interface CreateSeatMapRequest {
 
   // Một mảng chứa thông tin của các khu vực (sections) mới cần tạo.
   sections: CreateSeatSectionRequest[];
+}
+
+/**
+ * Thông tin chi tiết của một Ghế (Seat) trong sơ đồ.
+ */
+export interface SeatDetail {
+  id: string;
+  rowLabel: string;
+  seatNumber: string;
+  seatType: string;
+  coordinates?: { x: number; y: number };
+}
+
+/**
+ * Thông tin chi tiết của một Khu vực/Zone (SeatSection) và danh sách ghế của nó.
+ */
+export interface SectionDetail {
+  id: string;
+  name: string;
+  capacity: number;
+  layoutData?: { x: number; y: number }[]; // Mảng tọa độ để vẽ đa giác
+  seats: SeatDetail[];
+}
+
+/**
+ * Cấu trúc dữ liệu đầy đủ của một Sơ đồ chỗ ngồi (SeatMap) được trả về từ API.
+ */
+export interface SeatMapDetail {
+  id: string;
+  name: string;
+  venueId: string;
+  venueName: string;
+  sections: SectionDetail[];
+}
+
+/**
+ * Trạng thái của một ghế cụ thể cho một sự kiện cụ thể.
+ */
+export interface EventSeatStatus {
+  id: string;
+  eventId: string;
+  seatId: string;
+  status: EventSeatStatusEnum;
+  ticketPurchaseId?: string;
+  heldUntil?: string; // ISO Date String
+}
+
+// =========================================
+// DTOs cho ZONED_ADMISSION - Chọn theo khu vực
+// =========================================
+
+/**
+ * Thông tin một loại vé được đơn giản hóa, dùng trong ngữ cảnh của một khu vực.
+ */
+export interface ZonedTicketDTO {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  availableQuantity?: number;
+  maxPerPurchase?: number;
+}
+
+/**
+ * Cấu trúc dữ liệu của một Khu vực/Zone (SeatSection) và danh sách các loại vé có trong đó.
+ */
+export interface ZoneWithTicketsDTO {
+  sectionId: string;
+  sectionName: string;
+  tickets: ZonedTicketDTO[];
+}
+
+// ======================================
+// File: src/types/index.ts
+// ======================================
+
+// --- Generic API & Base Types (Không đổi) ---
+// ... (ApiResponse, ApiErrorResponse, BaseEntity, etc.)
+
+// --- Generic Layout & Coordinate Types ---
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Shape {
+  shape: "rect" | "circle" | "polygon";
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  radius?: number;
+  points?: Point[];
+  label?: string;
+  style?: React.CSSProperties;
+}
+
+export interface StageLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label?: string;
+}
+
+export interface SeatMapLayout {
+  viewBox?: string;
+  backgroundImageUrl?: string;
+  stage?: StageLayout;
+  // Cho phép các thuộc tính khác không xác định trước
+  [key: string]: unknown;
+}
+
+export interface SectionLayout {
+  shape: "rect" | "polygon" | "path";
+  position?: Point;
+  width?: number;
+  height?: number;
+  points?: Point[];
+  svgPath?: string;
+  labelPosition?: Point;
+  style?: React.CSSProperties;
+  [key: string]: unknown;
+}
+
+// --- Common Ticketing DTOs ---
+export interface TicketType {
+  ticketId: string;
+  name: string;
+  price: number;
+  description?: string;
+  availableQuantity?: number;
+  maxPerPurchase?: number;
+  isOnSale: boolean;
+}
+
+// --- DTO for GENERAL_ADMISSION mode ---
+export interface GeneralAdmissionData {
+  availableTickets: TicketType[];
+  totalCapacity: number;
+  availableCapacity: number;
+}
+
+// --- DTOs for ZONED_ADMISSION mode ---
+export interface Zone {
+  zoneId: string;
+  name: string;
+  capacity: number;
+  availableCapacity: number;
+  availableTickets: TicketType[];
+  status: "AVAILABLE" | "SOLD_OUT" | "COMING_SOON";
+  coordinates?: SectionLayout;
+}
+
+export interface ZonedAdmissionData {
+  seatMapId: string;
+  seatMapName: string;
+  zones: Zone[];
+  layoutData?: SeatMapLayout;
+}
+
+// --- DTOs for RESERVED_SEATING mode ---
+export interface Seat {
+  seatId: string;
+  rowLabel: string;
+  seatNumber: string;
+  seatType: string;
+  status: "available" | "held" | "sold" | "unavailable";
+  price?: number;
+  ticketTypeName?: string;
+  ticketId?: string;
+  coordinates?: Point;
+}
+
+export interface Section {
+  sectionId: string;
+  name: string;
+  capacity: number;
+  availableCapacity: number;
+  seats: Seat[];
+  availableTickets: TicketType[];
+  layoutData?: SectionLayout;
+}
+
+export interface ReservedSeatingData {
+  seatMapId: string;
+  seatMapName: string;
+  sections: Section[];
+  layoutData?: SeatMapLayout;
+}
+
+// --- Main Combined API Response DTO ---
+export interface EventCreator {
+  id: string;
+  fullName?: string;
+  avatarUrl?: string;
+}
+
+export interface EventVenue {
+  venueId: string;
+  name: string;
+  address?: string;
+  city?: string;
+}
+
+export interface EventTicketingDetails {
+  eventId: string;
+  eventTitle: string;
+  slug: string;
+  eventDescription?: string;
+  coverImageUrl?: string;
+  eventStartDate: string;
+  eventEndDate: string;
+  isPublic: boolean;
+  creator?: EventCreator;
+  venue?: EventVenue;
+  ticketSelectionMode: TicketSelectionModeEnum;
+  ticketingData:
+    | GeneralAdmissionData
+    | ZonedAdmissionData
+    | ReservedSeatingData;
+}
+
+// --- Hold & Checkout DTOs ---
+export interface GaItemDTO {
+  ticketId: string;
+  quantity: number;
+}
+
+export interface TicketHoldRequest {
+  selectionMode: TicketSelectionModeEnum;
+  gaItems: GaItemDTO[];
+  seatIds: string[];
+}
+
+export interface HoldResponse {
+  holdId: string;
+  expiresAt: string;
+}
+
+export interface PaymentDetails {
+  paymentMethod: string;
+  paymentToken?: string;
+}
+
+export interface TicketPurchaseConfirmation {
+  purchaseId: string;
+  message: string;
+  purchaseDate: string;
+}
+
+// =========================================
+// Chatbot Types
+// =========================================
+
+export type MessageSender = "user" | "bot";
+
+export interface ChatMessage {
+  id: string;
+  text: string;
+  sender: MessageSender;
+}
+
+// Request từ FE -> BFF/API
+export interface DialogflowRequest {
+  text: string;
+  sessionId: string;
+}
+
+// Response từ BFF/API -> FE
+export interface DialogflowResponse {
+  fulfillmentText: string;
+}
+
+export type DialogflowParameterValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: DialogflowParameterValue }
+  | DialogflowParameterValue[];
+
+// Cấu trúc request webhook mà BE nhận (để tham khảo)
+export interface DialogflowWebhookRequest {
+  queryResult: {
+    queryText: string;
+    intent: {
+      displayName: string;
+    };
+    parameters: { [key: string]: DialogflowParameterValue };
+  };
+  session: string;
+}
+
+// Cấu trúc response webhook mà BE trả về (để tham khảo)
+export interface DialogflowWebhookResponse {
+  fulfillmentText: string;
 }

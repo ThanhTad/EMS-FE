@@ -1,4 +1,4 @@
-// app/(admin)/categories/(id)/edit/page.tsx
+// app/(admin)/categories/[id]/edit/page.tsx
 import { getCategoryById } from "@/lib/api";
 import { getAndVerifyServerSideUser } from "@/lib/session";
 import { redirect } from "next/navigation";
