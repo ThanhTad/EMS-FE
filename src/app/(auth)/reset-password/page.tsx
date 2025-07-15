@@ -50,7 +50,7 @@ export default function ResetPasswordPage() {
   const params = useSearchParams();
   const { resetPassword } = usePasswordReset();
 
-  const email = params.get("email");
+  const email = params.get("identifier");
   const resetToken = params.get("resetToken");
 
   const [isSubmitting, setIsSubmitting] = useState(false);

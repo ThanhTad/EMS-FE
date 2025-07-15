@@ -6,12 +6,11 @@ import React, {
   useState,
   useEffect,
   ReactNode,
-  useRef,
   useCallback,
 } from "react";
 import {
   AuthContextType,
-  AuthUser, // Sử dụng AuthUser để nhất quán với type của state
+  AuthUser,
   LoginRequest,
   RegisterRequest,
   AuthResponse,
@@ -19,158 +18,149 @@ import {
   ApiResponse,
   User,
 } from "@/types";
-import {
-  loginAPI,
-  registerAPI,
-  refreshTokenAPI,
-  logoutAPI,
-  // FIX 1: Sử dụng đúng tên hàm đã định nghĩa trong api.ts
-  getCurrentUserAPI,
-} from "@/lib/api";
+import { loginAPI, registerAPI, logoutAPI, getCurrentUserAPI } from "@/lib/api";
+import { useRouter } from "next/navigation";
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+// Bỏ refreshToken khỏi AuthContextType nếu cần
+type SimpleAuthContextType = Omit<AuthContextType, "refreshToken">;
+
+const AuthContext = createContext<SimpleAuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Nhất quán sử dụng AuthUser cho state
   const [user, setUser] = useState<AuthUser>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const router = useRouter();
 
-  const fetchUser = useCallback(async () => {
-    // Chỉ fetch nếu chưa có user hoặc đang trong quá trình loading ban đầu
-    if (!user || isLoading) {
-      try {
-        const currentUser = await getCurrentUserAPI(); // Sử dụng API đã import
+  /**
+   * Đăng xuất người dùng. Xóa trạng thái client và gọi API logout.
+   */
+  const logout = useCallback(async () => {
+    setUser(null);
 
-        // IMPROVEMENT 3: So sánh an toàn và hiệu quả hơn
-        // Nếu id người dùng mới khác với id người dùng cũ, hoặc user cũ là null, thì cập nhật
-        if (currentUser?.id !== user?.id) {
-          setUser(currentUser ?? null);
-        }
-      } catch (error) {
-        // Nếu có lỗi (thường là 401), đảm bảo user là null
-        if (error instanceof Error && user !== null) {
-          setUser(null);
-        }
-      } finally {
-        // Luôn tắt loading sau khi fetch xong, dù thành công hay thất bại
-        if (isLoading) {
-          setIsLoading(false);
-        }
-      }
-    }
-  }, [user, isLoading]);
-
-  useEffect(() => {
-    // Lần đầu tải component, fetch user để kiểm tra session đăng nhập
-    fetchUser();
-
-    // Cleanup function để xóa timeout khi component unmount
-    return () => {
-      if (refreshTimeoutRef.current) {
-        clearTimeout(refreshTimeoutRef.current);
-      }
-    };
-  }, [fetchUser]); // fetchUser là một dependency ổn định nhờ useCallback
-
-  const scheduleRefresh = (expiresIn: number) => {
-    if (refreshTimeoutRef.current) {
-      clearTimeout(refreshTimeoutRef.current);
-    }
-    // Refresh trước khi token hết hạn 60 giây để đảm bảo an toàn
-    const refreshTime = Math.max(0, expiresIn - 60) * 1000;
-    if (refreshTime > 0) {
-      refreshTimeoutRef.current = setTimeout(async () => {
-        await refreshToken();
-      }, refreshTime);
-    }
-  };
-
-  const isAuthenticated = !!user;
-
-  const login = async (
-    creds: LoginRequest
-  ): Promise<ApiResponse<AuthResponse>> => {
-    const response = await loginAPI(creds);
-    const authData = response.data.data;
-
-    // Chỉ set user và schedule refresh nếu đăng nhập thành công và không cần 2FA
-    if (authData.user && !authData.twoFactorEnabled) {
-      setUser(authData.user);
-      if (authData.accessTokenExpiresIn) {
-        scheduleRefresh(authData.accessTokenExpiresIn);
-      }
-    }
-    // Trả về toàn bộ response để component có thể xử lý các trường hợp khác (như 2FA)
-    return response.data;
-  };
-
-  const register = async (
-    payload: RegisterRequest
-  ): Promise<ApiResponse<User>> => {
-    // Chỉ cần gọi API, không cần tự động đăng nhập sau khi đăng ký
-    const response = await registerAPI(payload);
-    return response.data;
-  };
-
-  const refreshToken = async (): Promise<void> => {
     try {
-      const res = await refreshTokenAPI();
-      if (res.accessTokenExpiresIn) {
-        scheduleRefresh(res.accessTokenExpiresIn);
-      }
-      // Sau khi refresh token, fetch lại thông tin user để cập nhật (ví dụ role thay đổi)
-      await fetchUser();
-    } catch (error) {
-      // Nếu refresh token thất bại, coi như session đã hết hạn -> logout
-      console.error("Failed to refresh token, logging out.", error);
-      await logout();
-    }
-  };
-
-  const logout = async () => {
-    if (refreshTimeoutRef.current) {
-      clearTimeout(refreshTimeoutRef.current);
-    }
-    try {
-      await logoutAPI();
+      await logoutAPI(); // Gọi BE xóa cookie HttpOnly
     } catch (error) {
       console.error(
-        "Logout API failed, but clearing client state anyway.",
+        "Logout API call failed, but client state is cleared.",
         error
       );
     } finally {
+      router.replace("/login");
+    }
+  }, [router]);
+
+  /**
+   * Lấy thông tin người dùng từ backend dựa trên token trong cookie.
+   * Nếu thành công, người dùng được coi là đã đăng nhập.
+   * Nếu thất bại (thường là lỗi 401 do token hết hạn), coi như chưa đăng nhập.
+   */
+  const fetchUser = useCallback(async () => {
+    try {
+      const response = await getCurrentUserAPI();
+      if (response) {
+        setUser(response);
+        console.log("User fetched successfully:", response);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error("Failed to fetch user:", error.message);
+      }
       setUser(null);
+    } finally {
+      setIsLoading(false);
+      setIsInitialized(true);
+    }
+  }, []);
+  // useEffect này chỉ chạy MỘT LẦN khi Provider được mount
+  useEffect(() => {
+    if (!isInitialized) {
+      fetchUser();
+    }
+  }, [fetchUser, isInitialized]);
+
+  /**
+   * Xử lý logic đăng nhập.
+   * Sau khi đăng nhập thành công, chỉ cần set user.
+   * Không cần lên lịch refresh.
+   */
+  const login = async (
+    creds: LoginRequest
+  ): Promise<ApiResponse<AuthResponse>> => {
+    try {
+      const response = await loginAPI(creds);
+      const authData = response.data.data;
+
+      // Nếu đăng nhập thành công và không cần 2FA
+      if (authData.user && !authData.twoFactorEnabled) {
+        setUser(authData.user);
+        console.log("Login successful, user set:", authData.user);
+      }
+
+      // Vẫn trả về response đầy đủ để component có thể xử lý 2FA
+      return response.data;
+    } catch (error) {
+      console.error("Login failed:", error);
+      throw error;
     }
   };
 
-  const hasRole = (roleToCheck: UserRole): boolean => {
-    if (!user || !user.role) {
-      return false;
+  /**
+   * Xử lý logic đăng ký.
+   */
+  const register = async (
+    payload: RegisterRequest
+  ): Promise<ApiResponse<User>> => {
+    try {
+      const response = await registerAPI(payload);
+      return response.data;
+    } catch (error) {
+      console.error("Registration failed:", error);
+      throw error;
     }
-    // FIX 2: Phải so sánh bằng (===) vì role là một string, không phải array
-    return user.role === roleToCheck;
+  };
+
+  /**
+   * Kiểm tra vai trò của người dùng hiện tại.
+   */
+  const hasRole = (roleToCheck: UserRole): boolean => {
+    return user?.role === roleToCheck;
+  };
+
+  const refreshUser = useCallback(async () => {
+    await fetchUser();
+  }, [fetchUser]);
+
+  // Tạo đối tượng value, không có refreshToken
+  const value = {
+    user,
+    isLoading,
+    isAuthenticated: !!user,
+    login,
+    register,
+    logout,
+    hasRole,
+    fetchUser: refreshUser,
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        isAuthenticated,
-        login,
-        register,
-        refreshToken,
-        logout,
-        hasRole,
-        fetchUser,
-      }}
-    >
-      {children}
+    <AuthContext.Provider value={value}>
+      {isInitialized ? (
+        children
+      ) : (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900"></div>
+        </div>
+      )}
     </AuthContext.Provider>
   );
 }
 
+/**
+ * Custom hook `useAuth` để cung cấp một cách clean để truy cập context.
+ */
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

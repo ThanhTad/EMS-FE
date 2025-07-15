@@ -1,7 +1,7 @@
 // stores/cartStore.ts
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import { Event, Ticket, Seat } from "@/types";
+import { Event, Ticket, Seat, TicketSelectionModeEnum } from "@/types";
 
 // Định nghĩa các loại item trong giỏ hàng
 type CartItem =
@@ -19,6 +19,8 @@ interface CartState {
   clearCart: () => void;
   getTotalQuantity: () => number;
   getTotalPrice: () => number;
+  getSelectionMode: () => TicketSelectionModeEnum;
+  canMixModes: () => boolean; // Kiểm tra xem có thể mix GA và SEATED không
 }
 
 export const useCartStore = create<CartState>()(
@@ -28,10 +30,30 @@ export const useCartStore = create<CartState>()(
         event: null,
         items: new Map(),
 
-        setEvent: (event) => set({ event }),
+        setEvent: (newEvent) => {
+          const currentEvent = get().event;
+          if (currentEvent && currentEvent.id !== newEvent.id) {
+            // Nếu chuyển sang sự kiện khác, xóa giỏ hàng cũ
+            set({ event: newEvent, items: new Map() });
+          } else {
+            set({ event: newEvent });
+          }
+        },
 
         updateGaQuantity: (ticket, quantity) => {
-          const newItems = new Map(get().items);
+          const { items, canMixModes } = get();
+
+          // Kiểm tra xem có thể thêm GA khi đã có SEATED không
+          const hasSeatedItems = Array.from(items.values()).some(
+            (item) => item.type === "SEATED"
+          );
+          if (hasSeatedItems && !canMixModes()) {
+            throw new Error(
+              "Không thể thêm vé General Admission khi đã có vé có ghế được chọn"
+            );
+          }
+
+          const newItems = new Map(items);
           if (quantity <= 0) {
             newItems.delete(ticket.id);
           } else {
@@ -41,7 +63,19 @@ export const useCartStore = create<CartState>()(
         },
 
         addSeat: (seat, ticket) => {
-          const newItems = new Map(get().items);
+          const { items, canMixModes } = get();
+
+          // Kiểm tra xem có thể thêm SEATED khi đã có GA không
+          const hasGaItems = Array.from(items.values()).some(
+            (item) => item.type === "GA"
+          );
+          if (hasGaItems && !canMixModes()) {
+            throw new Error(
+              "Không thể chọn ghế cụ thể khi đã có vé General Admission"
+            );
+          }
+
+          const newItems = new Map(items);
           newItems.set(seat.id, { type: "SEATED", seat, ticket });
           set({ items: newItems });
         },
@@ -76,6 +110,32 @@ export const useCartStore = create<CartState>()(
             }
           }
           return total;
+        },
+
+        getSelectionMode: () => {
+          const items = get().items;
+          const hasSeatedItems = Array.from(items.values()).some(
+            (item) => item.type === "SEATED"
+          );
+          const hasGaItems = Array.from(items.values()).some(
+            (item) => item.type === "GA"
+          );
+
+          if (hasSeatedItems && hasGaItems) {
+            // Nếu có cả hai loại, cần xem event hỗ trợ ZONED_ADMISSION không
+            // Tạm thời return RESERVED_SEATING vì backend ưu tiên SEATED
+            return TicketSelectionModeEnum.RESERVED_SEATING;
+          } else if (hasSeatedItems) {
+            return TicketSelectionModeEnum.RESERVED_SEATING;
+          } else {
+            return TicketSelectionModeEnum.GENERAL_ADMISSION;
+          }
+        },
+
+        canMixModes: () => {
+          // Tùy thuộc vào business logic, hiện tại return false
+          // Có thể thay đổi dựa trên event configuration
+          return false;
         },
       }),
       {

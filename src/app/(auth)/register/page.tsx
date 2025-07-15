@@ -104,7 +104,7 @@ export default function RegisterPage() {
 
       toast.success("Đăng ký thành công! Vui lòng kiểm tra email để xác thực.");
       router.push(
-        `/otp?mode=verify-email&email=${encodeURIComponent(values.email)}`
+        `/otp?mode=verify-email&identifier=${encodeURIComponent(values.email)}`
       );
     } catch (error: unknown) {
       console.error("Registration failed:", error);

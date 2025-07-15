@@ -1,3 +1,4 @@
+//app/(main)/page.tsx
 import Header from "@/components/shared/Header";
 import Footer from "@/components/shared/Footer";
 import React from "react";

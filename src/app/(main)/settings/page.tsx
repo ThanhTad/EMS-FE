@@ -1,7 +1,5 @@
 // app/(main)/settings/page.tsx
-import { getAndVerifyServerSideUser } from "@/lib/session";
 import { getUserSettings, getCurrentUserAPI } from "@/lib/api";
-import { redirect } from "next/navigation";
 import { Metadata } from "next";
 import SettingsClient from "./SettingsClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -28,11 +26,11 @@ function SettingsSkeleton() {
 }
 
 export default async function SettingsPage() {
-  // 1. BẢO VỆ ROUTE Ở SERVER
-  const currentUser = await getAndVerifyServerSideUser();
-  if (!currentUser) {
-    redirect("/login?callbackUrl=/settings");
-  }
+  // // 1. BẢO VỆ ROUTE Ở SERVER
+  // const currentUser = await getCurrentUserAPI();
+  // if (!currentUser) {
+  //   redirect("/login?callbackUrl=/settings");
+  // }
 
   // 2. FETCH DỮ LIỆU BAN ĐẦU Ở SERVER
   try {

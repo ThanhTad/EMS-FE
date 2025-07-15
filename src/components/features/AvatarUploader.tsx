@@ -113,6 +113,7 @@ export default function AvatarUploader({
             className="dark:border-gray-600 dark:text-gray-100"
             disabled={disabled || saving}
             aria-label="Cập nhật ảnh đại diện"
+            type="button"
           >
             <span>{saving ? "Đang tải..." : "Cập nhật ảnh đại diện"}</span>
           </Button>

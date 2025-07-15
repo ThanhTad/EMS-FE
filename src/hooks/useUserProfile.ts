@@ -1,78 +1,53 @@
-// hooks/useUserProfile.ts
+//src/hooks/useUserProfile.ts
+import { getCurrentUserAPI, updateUserProfile } from "@/lib/api";
+import { AuthUser, UserProfileUpdateRequest } from "@/types";
+import useSWR from "swr";
 
-import { useState, useEffect, useCallback } from "react";
-import { User, UserProfileUpdateRequest } from "@/types";
-import { getUserProfile, updateUserProfile } from "@/lib/api";
-import { useAuth } from "@/contexts/AuthContext";
+// Hàm fetcher để SWR sử dụng, chỉ cần định nghĩa một lần
+const userProfileFetcher = () => getCurrentUserAPI();
 
-/**
- * Hook for fetching and updating user profile data
- */
-export function useUserProfile() {
-  const { user } = useAuth();
-  const [profile, setProfile] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refetch = useCallback(async () => {
-    if (user) {
-      setLoading(true);
-      try {
-        const data = await getUserProfile(user.id);
-        setProfile(data);
-        setError(null);
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Không thể tải profile");
-      } finally {
-        setLoading(false);
-      }
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (user) {
-      refetch();
-    } else {
-      setLoading(false);
-    }
-  }, [user, refetch]);
-
-  useEffect(() => {
-    if (user) {
-      setLoading(true);
-      getUserProfile(user.id)
-        .then((data) => setProfile(data))
-        .catch((err: unknown) => {
-          setError(
-            err instanceof Error ? err.message : "Không thể tải profile"
-          );
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
-  }, [user]);
+export const useUserProfile = () => {
+  // SWR sẽ tự động fetch, cache, và revalidate dữ liệu
+  const {
+    data: profile,
+    error,
+    isLoading,
+    mutate,
+  } = useSWR<AuthUser>("user-profile", userProfileFetcher);
 
   /**
-   * Cập nhật profile (PUT /users/{id})
-   * @param userId UUID user
-   * @param payload Thông tin cập nhật (có thể chỉ gồm 1 trường)
+   * Hàm để lưu các thay đổi của hồ sơ.
+   * Chỉ nhận một payload an toàn với các trường được phép thay đổi.
+   * @param payload - Dữ liệu cần cập nhật (fullName, phone)
    */
-  const saveProfile = async (
-    userId: string,
-    payload: Partial<UserProfileUpdateRequest>
-  ) => {
-    if (!userId) throw new Error("Không có userId");
-    const updated = await updateUserProfile(userId, payload);
-    setProfile(updated);
-    return updated;
+  const saveProfile = async (payload: UserProfileUpdateRequest) => {
+    if (!profile?.id) {
+      throw new Error("User not authenticated or profile not loaded.");
+    }
+
+    // Gọi API chỉ với các trường được phép cập nhật
+    const updatedUser = await updateUserProfile(profile.id, payload);
+
+    // Sau khi API thành công, ra lệnh cho SWR cập nhật cache.
+    // SWR sẽ tự động re-fetch để đảm bảo dữ liệu là mới nhất.
+    await mutate();
+
+    return updatedUser;
+  };
+
+  /**
+   * Hàm để chủ động yêu cầu SWR fetch lại dữ liệu hồ sơ.
+   * Hữu ích sau khi upload avatar.
+   */
+  const refetch = async () => {
+    await mutate();
   };
 
   return {
     profile,
-    loading,
-    error,
+    loading: isLoading,
+    error: error, // Trả về object lỗi đầy đủ
     saveProfile,
     refetch,
   };
-}
+};
