@@ -85,10 +85,12 @@ export default async function AdminUsersPage({
 
 // Đổi tên component để rõ ràng hơn vai trò của nó
 async function UsersTableWrapper({ searchParams }: AdminUsersPageProps) {
-  const page = Math.max(0, Number(searchParams.page ?? "1") - 1);
-  const size = Math.max(1, Number(searchParams.size ?? "10"));
-  const keyword = searchParams.keyword;
-  const sort = searchParams.sort;
+  const awaitedSearchParams = await searchParams;
+
+  const page = Math.max(0, Number(awaitedSearchParams.page ?? "1") - 1);
+  const size = Math.max(1, Number(awaitedSearchParams.size ?? "10"));
+  const keyword = awaitedSearchParams.keyword;
+  const sort = awaitedSearchParams.sort;
 
   try {
     const usersData = keyword
@@ -116,6 +118,7 @@ async function UsersTableWrapper({ searchParams }: AdminUsersPageProps) {
         <AlertDescription>
           Không thể tải danh sách người dùng. Chi tiết: {errorMessage}
         </AlertDescription>
+        3
       </Alert>
     );
   }

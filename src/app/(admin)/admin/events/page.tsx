@@ -1,8 +1,5 @@
 // app/(admin)/events/page.tsx
-import {
-  getEvents, // Giả sử bạn có hàm này cho admin
-  searchEvents, // Đổi tên hàm cho rõ ràng
-} from "@/lib/api";
+import { adminGetEvents, searchEvents } from "@/lib/api";
 import { eventColumns } from "@/components/admin/events/EventTableColumns";
 import { DataTable } from "@/components/shared/DataTable";
 import { Button } from "@/components/ui/button";
@@ -103,7 +100,7 @@ async function EventsTableWrapper({
     // 5. SỬ DỤNG CÁC HÀM API DÀNH RIÊNG CHO ADMIN
     const eventsData = keyword
       ? await searchEvents({ page, size, sort, keyword })
-      : await getEvents({ page, size, sort }); // Dùng hàm `adminGetEvents`
+      : await adminGetEvents({ page, size, sort });
 
     return (
       <DataTable

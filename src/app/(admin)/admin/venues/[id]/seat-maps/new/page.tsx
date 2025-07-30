@@ -1,6 +1,6 @@
 // app/admin/venues/[venueId]/seat-maps/new/page.tsx
 import NewSeatMapClient from "@/components/admin/venues/seat-maps/NewSeatMapClient";
-import { getVenueById } from "@/lib/api";
+import { adminGetVenueById } from "@/lib/api";
 import { notFound } from "next/navigation";
 import { Metadata } from "next";
 
@@ -14,7 +14,7 @@ export async function generateMetadata({
   params,
 }: NewSeatMapPageProps): Promise<Metadata> {
   try {
-    const venue = await getVenueById(params.venueId);
+    const venue = await adminGetVenueById(params.venueId);
     return {
       title: `Tạo Sơ đồ mới cho ${venue.name} | Admin EMS`,
     };
@@ -31,7 +31,7 @@ export default async function NewSeatMapPage({ params }: NewSeatMapPageProps) {
   // LỢI ÍCH 1: Xác thực venueId tồn tại ở phía server
   try {
     // Chỉ cần gọi để kiểm tra, không cần dùng data
-    await getVenueById(venueId);
+    await adminGetVenueById(venueId);
   } catch (error) {
     console.error(
       `Venue with id ${venueId} not found. Cannot create seat map.`,

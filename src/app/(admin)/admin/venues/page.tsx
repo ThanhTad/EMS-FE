@@ -1,5 +1,5 @@
-// app/admin/venues/page.tsx (Theo phong cách Server Component)
-import { getVenues } from "@/lib/api"; // Giả sử API này không cần token hoặc token được xử lý bên trong
+// app/admin/venues/page.tsx
+import { adminGetVenues } from "@/lib/api";
 import { VenueColumns } from "@/components/admin/venues/VenueColumns";
 import { DataTable } from "@/components/shared/DataTable";
 import { Button } from "@/components/ui/button";
@@ -77,7 +77,7 @@ async function VenuesTable({ searchParams }: AdminVenuesPageProps) {
 
   try {
     // API getVenues cần hỗ trợ các tham số này
-    const venuesData = await getVenues({ page, size, keyword, sort });
+    const venuesData = await adminGetVenues({ page, size, keyword, sort });
 
     return (
       <DataTable

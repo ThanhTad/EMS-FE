@@ -1,5 +1,4 @@
 // app/admin/venues/new/page.tsx
-
 import { getAndVerifyServerSideUser } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { UserRole } from "@/types";

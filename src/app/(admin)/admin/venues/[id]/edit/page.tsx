@@ -1,5 +1,5 @@
 // app/admin/venues/[venueId]/edit/page.tsx
-import { getVenueById } from "@/lib/api";
+import { adminGetVenueById } from "@/lib/api";
 import { notFound } from "next/navigation";
 import EditVenueClient from "@/components/admin/venues/EditVenueClient";
 
@@ -15,7 +15,7 @@ export default async function EditVenuePage({ params }: EditVenuePageProps) {
 
   try {
     // 1. Fetch dữ liệu trực tiếp trên server
-    const venue = await getVenueById(venueId);
+    const venue = await adminGetVenueById(venueId);
 
     // 2. Nếu thành công, render Client Component và truyền dữ liệu xuống làm props
     // Không cần useState, useEffect, hay isLoading nữa!

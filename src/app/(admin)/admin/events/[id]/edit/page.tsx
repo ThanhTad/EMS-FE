@@ -1,5 +1,4 @@
 // app/(admin)/events/(id)/edit/page.tsx
-
 import {
   getEventById,
   getCategories,

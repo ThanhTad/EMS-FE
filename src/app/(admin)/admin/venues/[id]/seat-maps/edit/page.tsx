@@ -1,5 +1,4 @@
 // app/admin/venues/[venueId]/seat-maps/[seatMapId]/edit/page.tsx
-
 import { getSeatMapDetails } from "@/lib/api";
 import { notFound } from "next/navigation";
 import EditSeatMapClient from "@/components/admin/venues/seat-maps/EditSeatMapClient"; // <-- Component client mới

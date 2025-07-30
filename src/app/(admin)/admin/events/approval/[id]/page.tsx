@@ -1,3 +1,4 @@
+// app/(admin)/events/approval/(id)/page.tsx
 import { getEventById } from "@/lib/api"; // API để lấy chi tiết 1 sự kiện
 import { getAndVerifyServerSideUser } from "@/lib/session";
 import { UserRole } from "@/types";

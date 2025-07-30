@@ -1,5 +1,5 @@
 // app/(admin)/events/new/page.tsx
-import { getCategories, getVenues, adminGetOrganizers } from "@/lib/api";
+import { getCategories, adminGetVenues, adminGetOrganizers } from "@/lib/api";
 import { getAndVerifyServerSideUser } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { Category, User, UserRole, Venue } from "@/types";
@@ -32,7 +32,7 @@ export default async function AdminCreateEventPage() {
   try {
     const [categoriesData, venuesData, organizersData] = await Promise.all([
       getCategories({ size: 1000 }), // Lấy tất cả categories
-      getVenues({ size: 1000 }), // Lấy tất cả venues
+      adminGetVenues({ size: 1000 }), // Lấy tất cả venues
       // Chỉ fetch organizers nếu là ADMIN
       currentUser.role === UserRole.ADMIN
         ? adminGetOrganizers()

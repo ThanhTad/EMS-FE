@@ -1,5 +1,5 @@
 // app/admin/venues/[venueId]/seat-maps/page.tsx
-import { getSeatMapsByVenue, getVenueById } from "@/lib/api";
+import { getSeatMapsByVenue, adminGetVenueById } from "@/lib/api";
 import { SeatMapColumns } from "@/components/admin/venues/seat-maps/SeatMapColumns";
 import { DataTable } from "@/components/shared/DataTable";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ export async function generateMetadata({
   params: { venueId: string };
 }): Promise<Metadata> {
   try {
-    const venue = await getVenueById(params.venueId);
+    const venue = await adminGetVenueById(params.venueId);
     return {
       title: `Sơ đồ cho ${venue.name} | Admin EMS`,
       description: `Quản lý sơ đồ chỗ ngồi cho địa điểm ${venue.name}.`,
@@ -46,7 +46,7 @@ export default async function SeatMapsPage({
   const { venueId } = params;
 
   // TỐI ƯU: Khởi chạy cả hai request cùng lúc thay vì chờ đợi tuần tự
-  const venueDataPromise = getVenueById(venueId);
+  const venueDataPromise = adminGetVenueById(venueId);
   // Không cần lấy seat maps ở đây nữa, vì đã có trong component con rồi
 
   // Chỉ cần lấy venue data để hiển thị tiêu đề

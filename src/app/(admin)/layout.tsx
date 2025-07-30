@@ -13,7 +13,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <ProtectedAdminRoute>
         <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
           <AdminSidebar />
-          <div className="flex flex-1 flex-col">
+          <div className="flex-1 flex flex-col sm:pl-60">
             <AdminHeader />
             <main className="flex-1 p-4 pt-6 md:p-6 lg:p-8" role="main">
               {children}

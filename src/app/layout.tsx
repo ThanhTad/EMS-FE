@@ -36,7 +36,7 @@ export default function RootLayout({
             </ChatProvider>
           </AuthProvider>
         </ThemeProvider>
-        <Toaster />
+        <Toaster position="top-right" richColors closeButton duration={5000} />
       </body>
     </html>
   );
