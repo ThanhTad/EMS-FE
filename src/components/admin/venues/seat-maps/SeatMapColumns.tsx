@@ -26,7 +26,9 @@ export const SeatMapColumns: ColumnDef<SeatMap>[] = [
     header: "Cập nhật lần cuối",
     cell: ({ row }) => {
       try {
-        return format(parseISO(row.original.updatedAt), "dd/MM/yyyy HH:mm");
+        return row.original.updatedAt
+          ? format(parseISO(row.original.updatedAt), "dd/MM/yyyy HH:mm")
+          : "-";
       } catch {
         return <span className="text-muted-foreground">N/A</span>;
       }

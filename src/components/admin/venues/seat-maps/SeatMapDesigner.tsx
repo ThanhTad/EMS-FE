@@ -1,400 +1,414 @@
-// components/admin/seat-maps/SeatMapDesigner.tsx
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect } from "react";
-import { Save, Square, Move, RotateCcw, ArrowLeft } from "lucide-react";
+import React, { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  SeatData,
+  DesignerSectionData,
+  SeatMapDetails,
+  SeatGenerationConfig,
+  UpdateSeatMapRequest,
+  SectionLayoutData,
   SeatMapDesignerProps,
-  SeatMapPayload,
-  SeatMapSectionData,
-} from "@/types"; // Import các type mới
-import { Button } from "@/components/ui/button";
+  DesignerSeatData,
+  Seat,
+} from "@/types";
+import { DesignerToolbar } from "./designer/DesignerToolbar";
+import { DesignerCanvas } from "./designer/DesignerCanvas";
+import { PropertiesPanel } from "./designer/PropertiesPanel";
+import { useDesignerStore } from "@/hooks/useDesignerStore";
+import { BulkActionsToolbar } from "./designer/BulkActionsToolbar";
 
-// ---- Helper Functions ----
-/**
- * Chuyển đổi dữ liệu từ API (initialData) sang định dạng state của Designer
- */
+const getDefaultLayoutData = (): SectionLayoutData => ({
+  svgPath: "M 0 0 L 100 0 L 100 100 L 0 100 Z", // Một hình vuông mặc định
+  style: {
+    default: { fill: "#e0e0e0", stroke: "#a0a0a0", strokeWidth: 1 },
+    hover: { fill: "#c0c0c0" },
+    selected: { stroke: "#3b82f6", strokeWidth: 2 },
+  },
+});
+
+// Hàm helper để chuyển đổi dữ liệu từ API
 const transformApiDataToState = (
-  apiData: NonNullable<SeatMapDesignerProps["initialData"]>
-): SeatMapSectionData[] => {
+  apiData: SeatMapDetails
+): DesignerSectionData[] => {
   return apiData.sections.map((section) => ({
     id: section.id,
     name: section.name,
-    layout: (section.layoutData as SeatMapSectionData["layout"]) || {
-      startX: 0,
-      startY: 0,
-      width: 100,
-      height: 100,
-      color: "#cccccc",
-    },
-    seats: section.seats.map((seat) => ({
-      id: seat.id,
+    capacity: section.capacity,
+    layoutData: section.layoutData || getDefaultLayoutData(),
+    seats: section.seats.map((seat: Seat) => ({
+      id: seat.seatId,
       rowLabel: seat.rowLabel,
       seatNumber: seat.seatNumber,
-      coordinates: (seat.coordinates as SeatData["coordinates"]) || {
-        x: 0,
-        y: 0,
-      },
       seatType: seat.seatType || "standard",
+      coordinates: seat.coordinates || { x: 0, y: 0 },
     })),
   }));
 };
 
-/**
- * Chuyển đổi dữ liệu từ state của Designer sang định dạng payload để gửi đi
- */
-const transformStateToPayload = (
-  state: SeatMapSectionData[],
-  name: string,
-  description: string
-): SeatMapPayload => {
-  return {
-    name,
-    description,
-    sections: state.map((section) => ({
-      ...section,
-      // Có thể thêm logic để loại bỏ các trường không cần thiết trước khi gửi
-    })),
-  };
-};
-
-const SeatMapDesigner: React.FC<SeatMapDesignerProps> = ({
+export default function SeatMapDesigner({
   isEditMode,
   initialData,
   onSave,
-}) => {
+}: SeatMapDesignerProps) {
   const router = useRouter();
+  const { selectedObjectIds, setSelectedObjects } = useDesignerStore();
 
-  // ---- States ----
-  const [mapName, setMapName] = useState(initialData?.name || "Sơ đồ mới");
+  const [mapName, setMapName] = useState(initialData.name);
   const [mapDescription, setMapDescription] = useState(
-    initialData?.description || ""
+    initialData.description || ""
   );
-
-  const [sections, setSections] = useState<SeatMapSectionData[]>([]);
-
-  // State cho việc vẽ vời trên canvas
-  const [tool, setTool] = useState("select"); // 'select', 'section'
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [currentDrawingSection, setCurrentDrawingSection] = useState<Omit<
-    SeatMapSectionData,
-    "seats" | "id"
-  > | null>(null);
-
-  const [zoom] = useState(1);
-  //   const [pan, setPan] = useState({ x: 0, y: 0 }); // Thêm tính năng pan sau
+  const [sections, setSections] = useState<DesignerSectionData[]>(
+    transformApiDataToState(initialData)
+  );
   const [isLoading, setIsLoading] = useState(false);
 
-  const canvasRef = useRef<SVGSVGElement>(null);
-  const [canvasSize] = useState({ width: 1000, height: 700 });
-
-  // ---- Effects ----
-  // Khởi tạo state từ initialData khi component được mount
-  useEffect(() => {
-    if (initialData) {
-      setSections(transformApiDataToState(initialData));
-    }
-  }, [initialData]);
-
-  // ---- Event Handlers ----
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      if (tool !== "section" || !canvasRef.current) return;
-
-      setIsDrawing(true);
-      const rect = canvasRef.current.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / zoom;
-      const y = (e.clientY - rect.top) / zoom;
-
-      setCurrentDrawingSection({
-        name: `Khu vực ${sections.length + 1}`,
-        layout: { startX: x, startY: y, width: 0, height: 0, color: "#1E40AF" },
-      });
-    },
-    [tool, zoom, sections.length]
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      if (!isDrawing || !currentDrawingSection || !canvasRef.current) return;
-
-      const rect = canvasRef.current.getBoundingClientRect();
-      const currentX = (e.clientX - rect.left) / zoom;
-      const currentY = (e.clientY - rect.top) / zoom;
-
-      setCurrentDrawingSection((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          layout: {
-            ...prev.layout,
-            width: Math.abs(currentX - prev.layout.startX),
-            height: Math.abs(currentY - prev.layout.startY),
-          },
-        };
-      });
-    },
-    [currentDrawingSection, isDrawing, zoom]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    if (!isDrawing || !currentDrawingSection) return;
-
-    setIsDrawing(false);
-
-    // Đảm bảo khu vực có kích thước tối thiểu
-    if (
-      currentDrawingSection.layout.width > 10 &&
-      currentDrawingSection.layout.height > 10
-    ) {
+  const handleAddSection = useCallback(
+    (newSection: Omit<DesignerSectionData, "id">) => {
       setSections((prev) => [
         ...prev,
-        {
-          ...currentDrawingSection,
-          seats: [], // Khởi tạo mảng ghế rỗng
-        },
+        { ...newSection, id: `temp-${Date.now()}` },
       ]);
-    }
+    },
+    []
+  );
 
-    setCurrentDrawingSection(null);
-    setTool("select"); // Chuyển về chế độ chọn sau khi vẽ
-  }, [isDrawing, currentDrawingSection]);
+  const handleUpdateSection = useCallback(
+    (id: string, updates: Partial<DesignerSectionData>) => {
+      setSections((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...updates } : s))
+      );
+    },
+    []
+  );
+
+  const handleGenerateSeats = useCallback(
+    (sectionId: string, config: SeatGenerationConfig) => {
+      const {
+        rows,
+        cols,
+        startRow,
+        startCol,
+        hSpacing,
+        vSpacing,
+        seatType,
+        rowLabelType,
+      } = config;
+      const newSeats = [];
+      const getRowLabel = (rowIndex: number) => {
+        if (rowLabelType === "alpha") {
+          return String.fromCharCode(startRow.charCodeAt(0) + rowIndex);
+        }
+        return (Number(startRow) + rowIndex).toString();
+      };
+
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          newSeats.push({
+            id: `temp-seat-${Date.now()}-${i}-${j}`,
+            rowLabel: getRowLabel(i),
+            seatNumber: (startCol + j).toString(),
+            seatType: seatType,
+            coordinates: { x: j * hSpacing, y: i * vSpacing },
+          });
+        }
+      }
+      handleUpdateSection(sectionId, {
+        seats: newSeats,
+        capacity: newSeats.length,
+      });
+      toast.success(`Đã tạo ${newSeats.length} ghế!`);
+    },
+    [handleUpdateSection]
+  );
 
   const handleSaveClick = async () => {
-    if (!mapName) {
-      toast.error("Tên sơ đồ là bắt buộc.");
-      return;
-    }
     setIsLoading(true);
     try {
-      const payload = transformStateToPayload(
-        sections,
-        mapName,
-        mapDescription
-      );
+      const payload: UpdateSeatMapRequest = {
+        name: mapName,
+        description: mapDescription,
+        layoutData: initialData.layoutData,
+        sections: sections.map((s) => ({
+          id: s.id.startsWith("temp-") ? undefined : s.id,
+          name: s.name,
+          capacity: s.capacity,
+          layoutData: s.layoutData,
+          seats: s.seats.map((seat) => ({
+            id: seat.id.startsWith("temp-") ? undefined : seat.id,
+            rowLabel: seat.rowLabel,
+            seatNumber: seat.seatNumber,
+            seatType: seat.seatType,
+            coordinates: seat.coordinates,
+          })),
+        })),
+      };
       await onSave(payload);
-      toast.success("Đã lưu sơ đồ thành công!");
-      router.back(); // Quay lại trang danh sách sơ đồ
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Đã xảy ra lỗi không mong muốn.";
-      toast.error("Lưu sơ đồ thất bại", { description: message });
+      toast.error("Lỗi lưu sơ đồ", {
+        description:
+          error instanceof Error ? error.message : "Lỗi không xác định",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ---- Render Logic ----
+  const handleUpdateMultipleSeats = useCallback(
+    (seatIds: string[], updates: Partial<DesignerSeatData>) => {
+      const idSet = new Set(seatIds);
+      setSections((prevSections) =>
+        prevSections.map((section) => ({
+          ...section,
+          seats: section.seats.map((seat) =>
+            idSet.has(seat.id) ? { ...seat, ...updates } : seat
+          ),
+        }))
+      );
+    },
+    []
+  );
+
+  const handleUpdateSeat = useCallback(
+    (sectionId: string, seatId: string, updates: Partial<DesignerSeatData>) => {
+      // Chúng ta có thể bỏ qua sectionId ở đây vì seatId đã là duy nhất
+      handleUpdateMultipleSeats([seatId], updates);
+    },
+    [handleUpdateMultipleSeats]
+  );
+
+  const getSelectedSeats = useCallback((): DesignerSeatData[] => {
+    const selectedSeatsMap = new Map<string, DesignerSeatData>();
+    const idSet = new Set(selectedObjectIds);
+    sections.forEach((sec) => {
+      sec.seats.forEach((seat) => {
+        if (idSet.has(seat.id)) {
+          selectedSeatsMap.set(seat.id, seat);
+        }
+      });
+    });
+    return Array.from(selectedSeatsMap.values());
+  }, [selectedObjectIds, sections]);
+
+  const handleDistribute = (direction: "horizontal" | "vertical") => {
+    const selectedSeats = getSelectedSeats();
+    if (selectedSeats.length < 3)
+      return toast.info("Cần chọn ít nhất 3 ghế để phân phối.");
+
+    const axis = direction === "horizontal" ? "x" : "y";
+    const sortedSeats = [...selectedSeats].sort(
+      (a, b) => a.coordinates[axis] - b.coordinates[axis]
+    );
+
+    const firstSeat = sortedSeats[0];
+    const lastSeat = sortedSeats[sortedSeats.length - 1];
+
+    const totalDistance =
+      lastSeat.coordinates[axis] - firstSeat.coordinates[axis];
+    if (totalDistance === 0) return;
+
+    const spacing = totalDistance / (sortedSeats.length - 1);
+
+    const updatesMap = new Map<string, Partial<DesignerSeatData>>();
+    sortedSeats.forEach((seat, index) => {
+      const newCoord = firstSeat.coordinates[axis] + index * spacing;
+      updatesMap.set(seat.id, {
+        coordinates: { ...seat.coordinates, [axis]: newCoord },
+      });
+    });
+
+    setSections((prev) =>
+      prev.map((sec) => ({
+        ...sec,
+        seats: sec.seats.map((seat) =>
+          updatesMap.has(seat.id)
+            ? { ...seat, ...updatesMap.get(seat.id) }
+            : seat
+        ),
+      }))
+    );
+  };
+
+  const handleAlign = (
+    type: "left" | "center-h" | "right" | "top" | "center-v" | "bottom"
+  ) => {
+    const selectedSeats = getSelectedSeats();
+    if (selectedSeats.length < 2) return;
+
+    const xs = selectedSeats.map((s) => s.coordinates.x);
+    const ys = selectedSeats.map((s) => s.coordinates.y);
+    const minX = Math.min(...xs),
+      maxX = Math.max(...xs);
+    const minY = Math.min(...ys),
+      maxY = Math.max(...ys);
+    const centerX = (minX + maxX) / 2,
+      centerY = (minY + maxY) / 2;
+
+    const updatesMap = new Map<string, Partial<DesignerSeatData>>();
+    selectedSeats.forEach((seat) => {
+      const newCoords = { ...seat.coordinates };
+      switch (type) {
+        case "left":
+          newCoords.x = minX;
+          break;
+        case "center-h":
+          newCoords.x = centerX;
+          break;
+        case "right":
+          newCoords.x = maxX;
+          break;
+        case "top":
+          newCoords.y = minY;
+          break;
+        case "center-v":
+          newCoords.y = centerY;
+          break;
+        case "bottom":
+          newCoords.y = maxY;
+          break;
+      }
+      updatesMap.set(seat.id, { coordinates: newCoords });
+    });
+
+    setSections((prev) =>
+      prev.map((sec) => ({
+        ...sec,
+        seats: sec.seats.map((seat) =>
+          updatesMap.has(seat.id)
+            ? { ...seat, ...updatesMap.get(seat.id) }
+            : seat
+        ),
+      }))
+    );
+  };
+
+  const handleRotateSelected = (angleDegrees: number) => {
+    const selectedSeats = getSelectedSeats();
+    if (selectedSeats.length < 1) {
+      toast.info("Vui lòng chọn ít nhất một ghế để xoay.");
+      return;
+    }
+
+    // 1. Tìm điểm trung tâm (centroid) của nhóm ghế đã chọn
+    const sumX = selectedSeats.reduce(
+      (acc, seat) => acc + seat.coordinates.x,
+      0
+    );
+    const sumY = selectedSeats.reduce(
+      (acc, seat) => acc + seat.coordinates.y,
+      0
+    );
+    const centerX = sumX / selectedSeats.length;
+    const centerY = sumY / selectedSeats.length;
+
+    // 2. Chuyển đổi góc từ độ sang radian
+    const angleRadians = (angleDegrees * Math.PI) / 180;
+    const cosTheta = Math.cos(angleRadians);
+    const sinTheta = Math.sin(angleRadians);
+
+    // 3. Tạo một map chứa các tọa độ mới để cập nhật
+    const updatesMap = new Map<string, Partial<DesignerSeatData>>();
+
+    selectedSeats.forEach((seat) => {
+      // Tọa độ của ghế so với điểm trung tâm
+      const dx = seat.coordinates.x - centerX;
+      const dy = seat.coordinates.y - centerY;
+
+      // Áp dụng công thức xoay
+      const newX = dx * cosTheta - dy * sinTheta + centerX;
+      const newY = dx * sinTheta + dy * cosTheta + centerY;
+
+      updatesMap.set(seat.id, {
+        coordinates: {
+          x: Math.round(newX * 100) / 100, // Làm tròn 2 chữ số thập phân
+          y: Math.round(newY * 100) / 100,
+        },
+      });
+    });
+
+    // 4. Cập nhật state một cách bất biến
+    setSections((prevSections) =>
+      prevSections.map((section) => ({
+        ...section,
+        seats: section.seats.map((seat) => {
+          if (updatesMap.has(seat.id)) {
+            return { ...seat, ...updatesMap.get(seat.id) };
+          }
+          return seat;
+        }),
+      }))
+    );
+  };
+
+  const handleRenumberSeat = useCallback(
+    (seatId: string, newSeatNumber: string) => {
+      setSections((prev) =>
+        prev.map((sec) => ({
+          ...sec,
+          seats: sec.seats.map((seat) =>
+            seat.id === seatId ? { ...seat, seatNumber: newSeatNumber } : seat
+          ),
+        }))
+      );
+    },
+    []
+  );
+
+  const handleDeleteSelected = () => {
+    if (selectedObjectIds.length === 0) return;
+    const idSet = new Set(selectedObjectIds);
+    setSections(
+      (prev) =>
+        prev
+          .map((section) => {
+            if (idSet.has(section.id)) return null;
+            return {
+              ...section,
+              seats: section.seats.filter((seat) => !idSet.has(seat.id)),
+            };
+          })
+          .filter(Boolean) as DesignerSectionData[]
+    );
+    setSelectedObjects([], "none");
+    toast.success("Đã xóa các đối tượng được chọn.");
+  };
+
   return (
-    <div className="flex h-screen bg-gray-100 font-sans">
-      {/* Left Sidebar - Tools */}
-      <div className="w-64 bg-white shadow-lg flex flex-col">
-        <div className="p-4 border-b">
-          <h2 className="text-lg font-bold text-gray-800">
-            Trình thiết kế Sơ đồ
-          </h2>
-          <Button
-            variant="link"
-            className="p-0 h-auto text-sm"
-            onClick={() => router.back()}
-          >
-            <ArrowLeft className="w-4 h-4 mr-1" />
-            Quay lại danh sách
-          </Button>
-        </div>
-
-        <div className="p-4 border-b space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Tên sơ đồ *
-            </label>
-            <input
-              value={mapName}
-              onChange={(e) => setMapName(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Mô tả</label>
-            <textarea
-              value={mapDescription}
-              onChange={(e) => setMapDescription(e.target.value)}
-              rows={2}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="p-4 border-b">
-          <label className="block text-sm font-medium mb-2">Công cụ:</label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setTool("select")}
-              className={`p-2 rounded-md flex items-center justify-center ${
-                tool === "select"
-                  ? "bg-blue-100 text-blue-600"
-                  : "bg-gray-100 hover:bg-gray-200"
-              }`}
-            >
-              <Move className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setTool("section")}
-              className={`p-2 rounded-md flex items-center justify-center ${
-                tool === "section"
-                  ? "bg-blue-100 text-blue-600"
-                  : "bg-gray-100 hover:bg-gray-200"
-              }`}
-            >
-              <Square className="w-5 h-5" />
-            </button>
-            {/* Thêm các công cụ khác sau */}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="p-4 mt-auto border-t">
-          <Button
-            onClick={handleSaveClick}
-            disabled={isLoading}
-            className="w-full"
-          >
-            {isLoading ? (
-              <RotateCcw className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4 mr-2" />
-            )}
-            {isEditMode ? "Lưu thay đổi" : "Tạo Sơ đồ"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Canvas Area */}
-      <div className="flex-1 flex flex-col bg-gray-200">
-        <div className="flex-1 overflow-auto p-4">
-          <svg
-            ref={canvasRef}
-            width={canvasSize.width}
-            height={canvasSize.height}
-            className="bg-white shadow-md mx-auto"
-            style={{ cursor: tool === "section" ? "crosshair" : "default" }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-          >
-            {/* Grid */}
-            <defs>
-              <pattern
-                id="grid"
-                width="20"
-                height="20"
-                patternUnits="userSpaceOnUse"
-              >
-                <path
-                  d="M 20 0 L 0 0 0 20"
-                  fill="none"
-                  stroke="#e5e7eb"
-                  strokeWidth="0.5"
-                />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-
-            {/* Render các khu vực (sections) đã có */}
-            {sections.map((section, index) => (
-              <g key={section.id || `section-${index}`}>
-                <rect
-                  x={section.layout.startX}
-                  y={section.layout.startY}
-                  width={section.layout.width}
-                  height={section.layout.height}
-                  fill={section.layout.color}
-                  fillOpacity="0.2"
-                  stroke={section.layout.color}
-                  strokeWidth="1"
-                  className="cursor-pointer"
-                />
-                <text
-                  x={section.layout.startX + section.layout.width / 2}
-                  y={section.layout.startY + section.layout.height / 2}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  className="font-bold pointer-events-none"
-                  fill={section.layout.color}
-                >
-                  {section.name}
-                </text>
-              </g>
-            ))}
-
-            {/* Render khu vực đang vẽ */}
-            {currentDrawingSection && (
-              <rect
-                x={currentDrawingSection.layout.startX}
-                y={currentDrawingSection.layout.startY}
-                width={currentDrawingSection.layout.width}
-                height={currentDrawingSection.layout.height}
-                fill={currentDrawingSection.layout.color}
-                fillOpacity="0.4"
-                stroke={currentDrawingSection.layout.color}
-                strokeWidth="1"
-                strokeDasharray="4"
-              />
-            )}
-          </svg>
-        </div>
-      </div>
-
-      {/* Right Sidebar - Properties */}
-      <div className="w-80 bg-white shadow-lg border-l overflow-y-auto">
-        <div className="p-4 border-b">
-          <h3 className="font-semibold">Thuộc tính các Khu vực</h3>
-        </div>
-        <div className="p-4 space-y-4">
-          {sections.length === 0 && (
-            <p className="text-sm text-gray-500">
-              Chưa có khu vực nào. Hãy dùng công cụ để vẽ.
-            </p>
-          )}
-          {sections.map((section, index) => (
-            <div
-              key={section.id || `prop-${index}`}
-              className="border rounded-lg p-3 space-y-2"
-            >
-              <input
-                value={section.name}
-                onChange={(e) => {
-                  const newSections = [...sections];
-                  newSections[index].name = e.target.value;
-                  setSections(newSections);
-                }}
-                className="font-medium w-full border-b pb-1"
-              />
-              <div className="flex items-center space-x-2">
-                <label className="text-sm">Màu:</label>
-                <input
-                  type="color"
-                  value={section.layout.color}
-                  onChange={(e) => {
-                    const newSections = [...sections];
-                    newSections[index].layout.color = e.target.value;
-                    setSections(newSections);
-                  }}
-                  className="w-8 h-8 p-0 border-none"
-                />
-              </div>
-              {/* Thêm nút "Tạo ghế tự động" ở đây sau */}
-            </div>
-          ))}
-        </div>
-      </div>
+    <div className="flex h-screen w-full bg-gray-100 font-sans">
+      <DesignerToolbar
+        mapName={mapName}
+        setMapName={setMapName}
+        mapDescription={mapDescription}
+        setMapDescription={setMapDescription}
+        isEditMode={isEditMode}
+        onSave={handleSaveClick}
+        isLoading={isLoading}
+        onBack={() => router.back()}
+      />
+      <main className="flex-1 overflow-hidden relative">
+        {/* THÊM VÀO ĐÂY */}
+        <BulkActionsToolbar
+          onDistributeHorizontal={() => handleDistribute("horizontal")}
+          onDistributeVertical={() => handleDistribute("vertical")}
+          onRotate={handleRotateSelected}
+          onAlign={handleAlign}
+          onDeleteSelected={handleDeleteSelected}
+        />
+        <DesignerCanvas
+          sections={sections}
+          onAddSection={handleAddSection}
+          onUpdateSection={handleUpdateSection}
+          onUpdateSeat={handleUpdateSeat}
+        />
+      </main>
+      <PropertiesPanel
+        sections={sections}
+        onUpdateSection={handleUpdateSection}
+        onGenerateSeats={handleGenerateSeats}
+        onUpdateMultipleSeats={handleUpdateMultipleSeats}
+        onRenumber={handleRenumberSeat}
+      />
     </div>
   );
-};
-
-export default SeatMapDesigner;
+}

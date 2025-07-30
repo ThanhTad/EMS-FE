@@ -9,7 +9,7 @@ import {
   VenueForm,
   VenueFormValues,
 } from "@/components/admin/venues/VenueForm";
-import { updateVenue } from "@/lib/api";
+import { adminUpdateVenue } from "@/lib/api";
 import { Venue, UpdateVenueRequest, ApiErrorResponse } from "@/types";
 
 // Nhận props từ Server Component
@@ -30,7 +30,7 @@ export default function EditVenueClient({
       // payload có thể là toàn bộ data từ form
       const payload: UpdateVenueRequest = data;
 
-      await updateVenue(initialVenue.id, payload);
+      await adminUpdateVenue(initialVenue.id, payload);
       toast.success("Cập nhật địa điểm thành công!");
 
       router.push("/admin/venues");

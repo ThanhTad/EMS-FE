@@ -7,8 +7,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Loader2, CalendarIcon } from "lucide-react";
 import { format } from "date-fns";
+import { vi } from "date-fns/locale"; // Thêm locale tiếng Việt
 
-import { CreateTicketRequest, TicketSelectionModeEnum } from "@/types";
+import {
+  CreateTicketRequest,
+  Ticket,
+  Event,
+  TicketSelectionModeEnum,
+} from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,69 +33,75 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { Input as ShadInput } from "@/components/ui/input"; // ShadCN input để disabled
 
-// Định nghĩa schema validation sử dụng Zod
-const ticketFormSchema = z.object({
-  eventId: z.string().uuid("Vui lòng chọn một sự kiện hợp lệ."),
-  name: z.string().min(3, "Tên vé phải có ít nhất 3 ký tự."),
-  price: z.coerce.number().min(0, "Giá vé không được là số âm."),
-  description: z.string().optional(),
-  saleStartDate: z.date().optional(),
-  saleEndDate: z.date().optional(),
-  statusId: z.number().min(1, "Vui lòng chọn trạng thái."),
+// Schema validation được cập nhật
+const ticketFormSchema = z
+  .object({
+    name: z.string().min(3, "Tên vé phải có ít nhất 3 ký tự."),
+    price: z.coerce.number().min(0, "Giá vé không được là số âm."),
+    statusId: z.coerce.number().min(1, "Vui lòng chọn trạng thái."),
+    description: z.string().optional(),
+    saleStartDate: z.date().optional(),
+    saleEndDate: z.date().optional(),
+    appliesToSectionId: z.string().optional(),
+    totalQuantity: z.coerce
+      .number()
+      .int()
+      .positive("Số lượng phải là số nguyên dương.")
+      .optional(),
+    maxPerPurchase: z.coerce
+      .number()
+      .int()
+      .positive("Số lượng tối đa phải là số nguyên dương.")
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      // Thêm validation: nếu có ngày kết thúc thì phải sau ngày bắt đầu
+      if (data.saleStartDate && data.saleEndDate) {
+        return data.saleEndDate > data.saleStartDate;
+      }
+      return true;
+    },
+    {
+      message: "Ngày kết thúc phải sau ngày bắt đầu.",
+      path: ["saleEndDate"],
+    }
+  );
 
-  // Các trường phụ thuộc
-  appliesToSectionId: z.string().optional(),
-  totalQuantity: z.coerce
-    .number()
-    .int()
-    .positive("Số lượng phải là số nguyên dương.")
-    .optional(),
-  maxPerPurchase: z.coerce
-    .number()
-    .int()
-    .positive("Số lượng tối đa phải là số nguyên dương.")
-    .optional(),
-});
+type TicketFormValues = z.infer<typeof ticketFormSchema>;
 
 type SelectOption = { value: string; label: string };
 
+// Props đã được đơn giản hóa
 interface TicketFormProps {
-  initialData?: CreateTicketRequest | null;
-  onSubmit: (data: CreateTicketRequest) => Promise<void>;
+  initialData?: Ticket | null;
+  onSubmit: (data: Omit<CreateTicketRequest, "eventId">) => Promise<void>;
   isLoading: boolean;
-  isEditMode?: boolean;
-  eventOptions: SelectOption[];
+  isEditMode: boolean;
+  event: Event; // << BẮT BUỘC phải có event
   statusOptions: SelectOption[];
-  sectionOptions?: SelectOption[];
-  onEventChange: (eventId: string) => void;
-  isFetchingSections: boolean;
-  selectedEventTicketMode?: TicketSelectionModeEnum | null;
+  sectionOptions: SelectOption[];
 }
 
 export default function TicketForm({
   initialData,
   onSubmit,
   isLoading,
-  isEditMode = false,
-  eventOptions,
+  isEditMode,
+  event,
   statusOptions,
-  sectionOptions = [],
-  onEventChange,
-  isFetchingSections,
-  selectedEventTicketMode,
+  sectionOptions,
 }: TicketFormProps) {
   const {
     register,
     handleSubmit,
     control,
-    setValue,
-    watch,
     formState: { errors },
-  } = useForm<z.infer<typeof ticketFormSchema>>({
+  } = useForm<TicketFormValues>({
     resolver: zodResolver(ticketFormSchema),
     defaultValues: {
-      eventId: initialData?.eventId || "",
       name: initialData?.name || "",
       price: initialData?.price || 0,
       description: initialData?.description || "",
@@ -106,53 +118,30 @@ export default function TicketForm({
     },
   });
 
-  const watchEventId = watch("eventId");
-
-  // Hàm wrapper để xử lý submit với kiểu dữ liệu đúng
-  const handleFormSubmit = (data: z.infer<typeof ticketFormSchema>) => {
-    const payload: CreateTicketRequest = {
+  const handleFormSubmit = (data: TicketFormValues) => {
+    const payload: Omit<CreateTicketRequest, "eventId"> = {
       ...data,
       saleStartDate: data.saleStartDate?.toISOString(),
       saleEndDate: data.saleEndDate?.toISOString(),
-      statusId: Number(data.statusId),
     };
     onSubmit(payload);
   };
 
+  // Xác định các trường nào cần hiển thị dựa trên ticketSelectionMode của sự kiện
+  const showSectionSelect =
+    event.ticketSelectionMode === TicketSelectionModeEnum.RESERVED_SEATING ||
+    event.ticketSelectionMode === TicketSelectionModeEnum.ZONED_ADMISSION;
+  const showQuantityFields =
+    event.ticketSelectionMode === TicketSelectionModeEnum.GENERAL_ADMISSION ||
+    event.ticketSelectionMode === TicketSelectionModeEnum.ZONED_ADMISSION;
+
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8">
       <fieldset disabled={isLoading} className="space-y-4">
-        {/* Event Selection */}
+        {/* Event - Hiển thị dạng text, không cho sửa */}
         <div className="space-y-2">
-          <Label htmlFor="eventId">Sự kiện *</Label>
-          <Controller
-            name="eventId"
-            control={control}
-            render={({ field }) => (
-              <Select
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  onEventChange(value);
-                  setValue("appliesToSectionId", "");
-                }}
-                defaultValue={field.value}
-              >
-                <SelectTrigger id="eventId">
-                  <SelectValue placeholder="Chọn một sự kiện..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {eventOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-          {errors.eventId && (
-            <p className="text-sm text-red-500">{errors.eventId.message}</p>
-          )}
+          <Label>Sự kiện</Label>
+          <ShadInput value={event.title} disabled />
         </div>
 
         {/* Ticket Name & Price */}
@@ -182,89 +171,69 @@ export default function TicketForm({
           </div>
         </div>
 
-        {/* Conditional Fields based on Ticket Mode */}
-        {watchEventId && (
-          <>
-            {selectedEventTicketMode === TicketSelectionModeEnum.SEATED && (
-              <div className="space-y-2">
-                <Label htmlFor="appliesToSectionId">
-                  Áp dụng cho khu vực *
-                </Label>
-                <Controller
-                  name="appliesToSectionId"
-                  control={control}
-                  rules={{
-                    required:
-                      selectedEventTicketMode ===
-                      TicketSelectionModeEnum.SEATED,
-                  }}
-                  render={({ field }) => (
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      disabled={isFetchingSections}
-                    >
-                      <SelectTrigger id="appliesToSectionId">
-                        <SelectValue
-                          placeholder={
-                            isFetchingSections
-                              ? "Đang tải khu vực..."
-                              : "Chọn một khu vực"
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sectionOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                {errors.appliesToSectionId && (
-                  <p className="text-sm text-red-500">
-                    {errors.appliesToSectionId.message}
-                  </p>
-                )}
-              </div>
+        {/* Conditional Fields: Section & Quantity */}
+        {showSectionSelect && (
+          <div className="space-y-2">
+            <Label htmlFor="appliesToSectionId">Áp dụng cho khu vực *</Label>
+            <Controller
+              name="appliesToSectionId"
+              control={control}
+              rules={{ required: showSectionSelect }}
+              render={({ field }) => (
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                >
+                  <SelectTrigger id="appliesToSectionId">
+                    <SelectValue placeholder="Chọn một khu vực..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sectionOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.appliesToSectionId && (
+              <p className="text-sm text-red-500">Vui lòng chọn khu vực.</p>
             )}
+          </div>
+        )}
 
-            {selectedEventTicketMode ===
-              TicketSelectionModeEnum.GENERAL_ADMISSION && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="totalQuantity">Tổng số lượng vé</Label>
-                  <Input
-                    id="totalQuantity"
-                    type="number"
-                    placeholder="100"
-                    {...register("totalQuantity")}
-                  />
-                  {errors.totalQuantity && (
-                    <p className="text-sm text-red-500">
-                      {errors.totalQuantity.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="maxPerPurchase">Tối đa mỗi lần mua</Label>
-                  <Input
-                    id="maxPerPurchase"
-                    type="number"
-                    placeholder="5"
-                    {...register("maxPerPurchase")}
-                  />
-                  {errors.maxPerPurchase && (
-                    <p className="text-sm text-red-500">
-                      {errors.maxPerPurchase.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
+        {showQuantityFields && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="totalQuantity">Tổng số lượng vé</Label>
+              <Input
+                id="totalQuantity"
+                type="number"
+                placeholder="100"
+                {...register("totalQuantity")}
+              />
+              {errors.totalQuantity && (
+                <p className="text-sm text-red-500">
+                  {errors.totalQuantity.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="maxPerPurchase">Tối đa mỗi lần mua</Label>
+              <Input
+                id="maxPerPurchase"
+                type="number"
+                placeholder="5"
+                {...register("maxPerPurchase")}
+              />
+              {errors.maxPerPurchase && (
+                <p className="text-sm text-red-500">
+                  {errors.maxPerPurchase.message}
+                </p>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Description */}
@@ -296,7 +265,7 @@ export default function TicketForm({
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {field.value ? (
-                        format(field.value, "PPP")
+                        format(field.value, "PPP", { locale: vi })
                       ) : (
                         <span>Chọn ngày</span>
                       )}
@@ -331,7 +300,7 @@ export default function TicketForm({
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {field.value ? (
-                        format(field.value, "PPP")
+                        format(field.value, "PPP", { locale: vi })
                       ) : (
                         <span>Chọn ngày</span>
                       )}
@@ -348,6 +317,11 @@ export default function TicketForm({
                 </Popover>
               )}
             />
+            {errors.saleEndDate && (
+              <p className="text-sm text-red-500">
+                {errors.saleEndDate.message}
+              </p>
+            )}
           </div>
         </div>
 
@@ -359,10 +333,10 @@ export default function TicketForm({
             control={control}
             render={({ field }) => (
               <Select
-                onValueChange={(val) => field.onChange(Number(val))}
+                onValueChange={(val) => field.onChange(val)}
                 defaultValue={field.value?.toString()}
               >
-                <SelectTrigger id="statusId" className="w-[180px]">
+                <SelectTrigger id="statusId" className="w-full md:w-[240px]">
                   <SelectValue placeholder="Chọn trạng thái" />
                 </SelectTrigger>
                 <SelectContent>

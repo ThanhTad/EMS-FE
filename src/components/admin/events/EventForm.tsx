@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea"; // Sử dụng component Textarea từ shadcn
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -36,7 +36,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"; // Sử dụng Select từ shadcn để có UI đẹp hơn
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -46,7 +46,7 @@ import {
   CalendarCheck2,
 } from "lucide-react";
 import Link from "next/link";
-import { MultiSelect } from "@/components/shared/MultiSelect"; // <-- GIẢ SỬ BẠN CÓ COMPONENT NÀY
+import { MultiSelect } from "@/components/shared/MultiSelect";
 
 // ===================================
 // Zod Schema (Cập nhật để nhất quán)
@@ -78,7 +78,7 @@ const eventFormSchema = z
   })
   .superRefine((data, ctx) => {
     if (
-      data.ticketSelectionMode === TicketSelectionModeEnum.SEATED &&
+      data.ticketSelectionMode === TicketSelectionModeEnum.RESERVED_SEATING &&
       (!data.seatMapId || data.seatMapId.trim() === "")
     ) {
       ctx.addIssue({
@@ -159,7 +159,7 @@ const EventForm: React.FC<EventFormProps> = ({
 
   // Effect để fetch sơ đồ chỗ ngồi
   useEffect(() => {
-    if (selectedMode !== TicketSelectionModeEnum.SEATED) {
+    if (selectedMode !== TicketSelectionModeEnum.RESERVED_SEATING) {
       setSeatMapOptions([]);
       form.setValue("seatMapId", ""); // Reset giá trị
       return;
@@ -201,7 +201,7 @@ const EventForm: React.FC<EventFormProps> = ({
       label: "Vé Phổ thông (Không chọn chỗ)",
     },
     {
-      value: TicketSelectionModeEnum.SEATED,
+      value: TicketSelectionModeEnum.RESERVED_SEATING,
       label: "Sự kiện có chỗ ngồi (Yêu cầu Sơ đồ)",
     },
   ];
@@ -402,7 +402,7 @@ const EventForm: React.FC<EventFormProps> = ({
               </div>
 
               {/* Seat Map (Conditional) */}
-              {selectedMode === TicketSelectionModeEnum.SEATED && (
+              {selectedMode === TicketSelectionModeEnum.RESERVED_SEATING && (
                 <div className="space-y-2">
                   <Label>Sơ đồ chỗ ngồi *</Label>
                   <Controller

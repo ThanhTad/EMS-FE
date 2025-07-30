@@ -5,11 +5,11 @@ import React, { useState } from "react";
 import {
   VenueForm,
   VenueFormValues,
-} from "@/components/admin/venues/VenueForm"; // Import cả type
-import { createVenue } from "@/lib/api";
+} from "@/components/admin/venues/VenueForm";
+import { adminCreateVenue } from "@/lib/api";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { ApiErrorResponse } from "@/types"; // Import type lỗi
+import { ApiErrorResponse } from "@/types";
 
 export default function NewVenueClient() {
   const router = useRouter();
@@ -18,7 +18,7 @@ export default function NewVenueClient() {
   const handleCreateVenue = async (data: VenueFormValues) => {
     setIsLoading(true);
     try {
-      await createVenue(data); // API createVenue đã được định nghĩa để nhận đúng kiểu dữ liệu
+      await adminCreateVenue(data); // API createVenue đã được định nghĩa để nhận đúng kiểu dữ liệu
       toast.success("Tạo địa điểm thành công!");
       router.push("/admin/venues");
       router.refresh(); // Làm mới cache để danh sách địa điểm được cập nhật
