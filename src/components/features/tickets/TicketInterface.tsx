@@ -17,28 +17,21 @@ interface TicketingInterfaceProps {
 }
 
 const TicketingInterface: React.FC<TicketingInterfaceProps> = ({ data }) => {
-  const { ticketSelectionMode, ticketingData, eventId } = data;
+  const { ticketSelectionMode, ticketingData } = data;
   switch (ticketSelectionMode) {
     case TicketSelectionModeEnum.GENERAL_ADMISSION:
       return (
         <GeneralAdmissionSelector
           data={ticketingData as GeneralAdmissionData}
-          eventId={eventId}
         />
       );
     case TicketSelectionModeEnum.ZONED_ADMISSION:
       return (
-        <ZonedAdmissionSelector
-          data={ticketingData as ZonedAdmissionData}
-          eventId={eventId}
-        />
+        <ZonedAdmissionSelector data={ticketingData as ZonedAdmissionData} />
       );
     case TicketSelectionModeEnum.RESERVED_SEATING:
       return (
-        <ReservedSeatingSelector
-          data={ticketingData as ReservedSeatingData}
-          eventId={eventId}
-        />
+        <ReservedSeatingSelector data={ticketingData as ReservedSeatingData} />
       );
     default:
       return (

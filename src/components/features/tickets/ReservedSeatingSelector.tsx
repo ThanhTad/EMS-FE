@@ -1,99 +1,143 @@
 // components/features/tickets/ReservedSeatingSelector.tsx
 "use client";
 
-import {
-  ReservedSeatingData,
-  Seat,
-  TicketHoldRequest,
-  TicketSelectionModeEnum,
-} from "@/types";
-import React, { useState, useMemo } from "react";
-import { holdTicketsAPI } from "@/lib/api";
+import { ReservedSeatingData, Seat } from "@/types";
+import React, { useMemo, FC } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Loader2, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { usePanAndZoom } from "@/hooks/usePanAndZoom";
 import { useRouter } from "next/navigation";
+import { useCartStore } from "@/stores/cartStore";
+import { ZoomControls } from "@/components/shared/ZoomControls";
+import { StaticMapLayout } from "@/components/shared/StaticMapLayout";
 
-// --- Sub-components for SVG rendering ---
-const SeatComponent: React.FC<{
+const SeatComponent: FC<{
   seat: Seat;
   isSelected: boolean;
-  onClick: (seat: Seat) => void;
+  onClick: () => void;
 }> = React.memo(({ seat, isSelected, onClick }) => {
-  const { coordinates, status, rowLabel, seatNumber } = seat;
+  const { coordinates, status, rowLabel, seatNumber, price, ticketTypeName } =
+    seat;
   if (!coordinates) return null;
-
   const fillColor = isSelected
-    ? "#16a34a"
+    ? "hsl(142.1 76.2% 36.3%)"
     : status === "available"
-    ? "#60a5fa"
-    : "#9ca3af";
+    ? "hsl(221.2 83.2% 53.3%)"
+    : "hsl(215 20.2% 65.1%)";
   return (
     <circle
       cx={coordinates.x}
       cy={coordinates.y}
       r="8"
       fill={fillColor}
-      onClick={() => status === "available" && onClick(seat)}
-      className={`transition-all duration-150 ${
+      onClick={() => status === "available" && onClick()}
+      className={`transition-colors duration-150 ${
         status === "available"
           ? "cursor-pointer hover:stroke-black hover:stroke-2"
           : "cursor-not-allowed opacity-60"
       } ${isSelected ? "stroke-black stroke-2" : ""}`}
     >
-      <title>{`Hàng: ${rowLabel}, Ghế: ${seatNumber} - ${status}`}</title>
+      <title>{`Hàng: ${rowLabel}, Ghế: ${seatNumber}\n${
+        status === "available"
+          ? `Loại vé: ${ticketTypeName || "Standard"}\nGiá: ${
+              price?.toLocaleString() || 0
+            } VNĐ`
+          : `Trạng thái: Đã bán`
+      }`}</title>
     </circle>
   );
 });
 SeatComponent.displayName = "SeatComponent";
 
-const SectionComponent: React.FC<{
-  section: ReservedSeatingData["sections"][0];
-}> = React.memo(({ section }) => {
-  if (!section.layoutData?.svgPath) return null;
-  return (
-    <g>
-      <path
-        d={section.layoutData.svgPath}
-        fill="rgba(0, 100, 255, 0.05)"
-        stroke="rgba(0, 100, 255, 0.3)"
-        strokeWidth="1"
-        style={{ pointerEvents: "none" }}
-      />
-      {section.layoutData.labelPosition && (
-        <text
-          x={section.layoutData.labelPosition.x}
-          y={section.layoutData.labelPosition.y}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="text-xs font-bold fill-current text-gray-500"
-          style={{ pointerEvents: "none" }}
-        >
-          {section.name}
-        </text>
-      )}
-    </g>
-  );
-});
-SectionComponent.displayName = "SectionComponent";
-
-// --- Main Component ---
 interface ReservedSeatingSelectorProps {
   data: ReservedSeatingData;
-  eventId: string;
 }
 
-const ReservedSeatingSelector: React.FC<ReservedSeatingSelectorProps> = ({
+const ReservedSeatingSelector: FC<ReservedSeatingSelectorProps> = ({
   data,
-  eventId,
 }) => {
   const router = useRouter();
-  // State vẫn giữ nguyên
-  const [selectedSeats, setSelectedSeats] = useState<Map<string, Seat>>(
-    new Map()
-  );
-  const [isLoading, setIsLoading] = useState(false);
+
+  const addSeat = useCartStore((state) => state.addSeat);
+  const removeSeat = useCartStore((state) => state.removeSeat);
+  const cartItems = useCartStore((state) => state.items);
+
+  // Sử dụng một Set chứa các seatId đã chọn để kiểm tra nhanh
+  const selectedSeatIds = useMemo(() => {
+    const seatIds = new Set<string>();
+    Object.values(cartItems).forEach((item) => {
+      if (item.type === "SEATED" && item.seat) {
+        seatIds.add(item.seat.seatId);
+      }
+    });
+    return seatIds;
+  }, [cartItems]);
+
+  const handleSeatClick = (seat: Seat, sectionId: string) => {
+    console.log(seat);
+    if (seat.status !== "available" && !selectedSeatIds.has(seat.seatId)) {
+      toast.info(
+        `Ghế ${seat.rowLabel}${seat.seatNumber} đã được bán hoặc đang được giữ.`
+      );
+      return;
+    }
+
+    if (!seat.ticketId) {
+      toast.error("Ghế này không có thông tin vé hợp lệ.");
+      return;
+    }
+
+    const parentSection = data.sections.find((s) => s.sectionId === sectionId);
+    const fullTicketInfo = parentSection?.availableTickets.find(
+      (t) => t.id === seat.ticketId
+    );
+
+    if (!fullTicketInfo) {
+      toast.error(
+        "Lỗi: Không tìm thấy thông tin chi tiết cho loại vé của ghế này."
+      );
+      return;
+    }
+
+    if (selectedSeatIds.has(seat.seatId)) {
+      // Gọi đúng hàm `removeSeat`
+      removeSeat(seat.seatId);
+    } else {
+      // Gọi đúng hàm `addSeat`
+      addSeat(seat, fullTicketInfo);
+    }
+  };
+
+  const handleProceedToCheckout = () => {
+    if (selectedSeatIds.size === 0) {
+      toast.error("Vui lòng chọn ít nhất một ghế.");
+      return;
+    }
+    router.push(`/checkout`);
+  };
+
+  const { totalPrice, selectedSeatDetails } = useMemo(() => {
+    let total = 0;
+    const details: { id: string; label: string }[] = [];
+
+    Object.values(cartItems).forEach((item) => {
+      if (
+        item.type === "SEATED" &&
+        item.seat &&
+        selectedSeatIds.has(item.seat.seatId)
+      ) {
+        total += item.ticket.price;
+        details.push({
+          id: item.seat.seatId,
+          label: `${item.seat.rowLabel}${item.seat.seatNumber}`,
+        });
+      }
+    });
+    details.sort((a, b) => a.label.localeCompare(b.label));
+
+    return { totalPrice: total, selectedSeatDetails: details };
+  }, [cartItems, selectedSeatIds]);
+
   const {
     svgRef,
     transform,
@@ -102,172 +146,56 @@ const ReservedSeatingSelector: React.FC<ReservedSeatingSelectorProps> = ({
     resetTransform,
     panAndZoomHandlers,
   } = usePanAndZoom();
-
-  // THAY ĐỔI 2: Không cần `allAvailableTickets` hay `selectedTicketType` nữa
-  // const [selectedTicketType, setSelectedTicketType] = useState<TicketType | null>(null);
-  // const allAvailableTickets = useMemo(...);
-
-  const handleSeatClick = (seat: Seat) => {
-    const newSelectedSeats = new Map(selectedSeats);
-    if (newSelectedSeats.has(seat.seatId)) {
-      newSelectedSeats.delete(seat.seatId);
-    } else {
-      // Có thể thêm giới hạn số lượng ghế được chọn ở đây
-      // if (newSelectedSeats.size >= 10) {
-      //   toast.error("Bạn chỉ có thể chọn tối đa 10 ghế.");
-      //   return;
-      // }
-      newSelectedSeats.set(seat.seatId, seat);
-    }
-    setSelectedSeats(newSelectedSeats);
-  };
-
-  const handleHoldTickets = async () => {
-    if (selectedSeats.size === 0) {
-      toast.error("Vui lòng chọn ít nhất một ghế.");
-      return;
-    }
-    setIsLoading(true);
-
-    try {
-      // THAY ĐỔI 3: Chuẩn bị payload theo TicketHoldRequestDTO
-      // Logic này không cần thiết nếu BE đã xử lý, giữ lại để tham khảo
-      // const itemsByTicket = new Map<string, string[]>();
-      // for (const seat of selectedSeats.values()) {
-      //   const seats = itemsByTicket.get(seat.applicableTicketId) || [];
-      //   seats.push(seat.seatId);
-      //   itemsByTicket.set(seat.applicableTicketId, seats);
-      // }
-      // const gaItems = Array.from(itemsByTicket.entries()).map(([ticketId, seatIds]) => ({
-      //   ticketId,
-      //   quantity: seatIds.length,
-      //   seatIds: seatIds, // có thể thêm seatIds vào đây nếu BE cần
-      // }));
-
-      const payload: TicketHoldRequest = {
-        selectionMode: TicketSelectionModeEnum.RESERVED_SEATING,
-        // gaItems bây giờ sẽ rỗng
-        gaItems: [],
-        // seatIds là danh sách tất cả các ID ghế đã chọn
-        seatIds: Array.from(selectedSeats.keys()),
-      };
-
-      // Gọi API mới
-      const response = await holdTicketsAPI(eventId, payload);
-
-      toast.success(
-        `Giữ thành công ${selectedSeats.size} ghế. Chuyển đến trang thanh toán...`
-      );
-
-      // Chuyển hướng đến trang thanh toán với holdId
-      router.push(`/checkout?holdId=${response.holdId}`);
-    } catch (error) {
-      if (error instanceof Error) {
-        toast.error("Vé đã được giữ hoặc không còn khả dụng.");
-        const errorMessage =
-          error.message || "Giữ vé thất bại. Vui lòng thử lại.";
-        toast.error(errorMessage);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // THAY ĐỔI 4: Tính tổng giá trực tiếp từ các ghế đã chọn
-  const totalPrice = useMemo(() => {
-    let total = 0;
-    for (const seat of selectedSeats.values()) {
-      total += seat.price || 0;
-    }
-    return total;
-  }, [selectedSeats]);
-
-  const viewBoxValues = data.layoutData?.viewBox?.split(" ").map(Number) || [
-    0, 0, 1200, 800,
+  const [vx, vy, vw, vh] = data.layoutData?.viewBox?.split(" ").map(Number) || [
+    0, 0, 800, 600,
   ];
-  const [vx, vy, vw, vh] = viewBoxValues;
 
   return (
     <div className="p-4 border rounded-lg shadow-md flex flex-col gap-4">
-      {/* Phần header và SVG không đổi */}
       <div className="flex justify-between items-center">
         <h3 className="text-xl font-bold">{data.seatMapName}</h3>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={zoomIn}>
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={zoomOut}>
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={resetTransform}>
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-        </div>
+        <ZoomControls
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onReset={resetTransform}
+        />
       </div>
-      <div className="w-full border rounded-md bg-slate-50 overflow-hidden cursor-grab active:cursor-grabbing">
+      <div className="w-full border rounded-md bg-gray-50 dark:bg-gray-900 overflow-hidden cursor-grab active:cursor-grabbing">
         <svg
           ref={svgRef}
           viewBox={`${vx} ${vy} ${vw} ${vh}`}
-          className="w-full h-full"
+          className="w-full h-auto"
           {...panAndZoomHandlers}
         >
           <g transform={transform}>
-            {/* --- Nội dung SVG giữ nguyên như cũ --- */}
-            {data.layoutData?.backgroundImageUrl && (
-              <image
-                href={data.layoutData.backgroundImageUrl}
-                x={vx}
-                y={vy}
-                width={vw}
-                height={vh}
-              />
+            <StaticMapLayout
+              layoutData={data.layoutData}
+              sections={data.sections}
+            />
+            {data.sections.flatMap((section) =>
+              section.seats.map((seat) => (
+                <SeatComponent
+                  key={seat.seatId}
+                  seat={seat}
+                  isSelected={selectedSeatIds.has(seat.seatId)}
+                  onClick={() => handleSeatClick(seat, section.sectionId)}
+                />
+              ))
             )}
-            {data.layoutData?.stage && (
-              <rect
-                x={data.layoutData.stage.x}
-                y={data.layoutData.stage.y}
-                width={data.layoutData.stage.width}
-                height={data.layoutData.stage.height}
-                fill="#333"
-                rx="5"
-              />
-            )}
-            {data.sections.map((section) => (
-              <SectionComponent
-                key={`section-shape-${section.sectionId}`}
-                section={section}
-              />
-            ))}
-            {data.sections.map((section) => (
-              <g key={`section-seats-${section.sectionId}`}>
-                {section.seats.map((seat) => (
-                  <SeatComponent
-                    key={seat.seatId}
-                    seat={seat}
-                    isSelected={selectedSeats.has(seat.seatId)}
-                    onClick={handleSeatClick}
-                  />
-                ))}
-              </g>
-            ))}
           </g>
         </svg>
       </div>
-
-      {/* THAY ĐỔI 5: Giao diện thanh toán được đơn giản hóa */}
-      <div className="mt-2 flex flex-col md:flex-row justify-between items-center gap-4 p-4 bg-slate-50/50 rounded-lg border">
-        {/* Không cần dropdown chọn loại vé nữa */}
+      <div className="mt-2 flex flex-col md:flex-row justify-between items-center gap-4 p-4 bg-slate-50/50 dark:bg-gray-800/50 rounded-lg border">
         <div className="flex-grow">
           <p className="font-semibold">Ghế đã chọn:</p>
           <div className="flex flex-wrap gap-2 mt-1 text-sm">
-            {selectedSeats.size > 0 ? (
-              Array.from(selectedSeats.values()).map((seat) => (
+            {selectedSeatDetails.length > 0 ? (
+              selectedSeatDetails.map((seat) => (
                 <span
-                  key={seat.seatId}
-                  className="bg-blue-100 text-blue-800 px-2 py-1 rounded"
+                  key={seat.id}
+                  className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2 py-1 rounded"
                 >
-                  {seat.rowLabel}
-                  {seat.seatNumber}
+                  {seat.label}
                 </span>
               ))
             ) : (
@@ -277,12 +205,11 @@ const ReservedSeatingSelector: React.FC<ReservedSeatingSelectorProps> = ({
             )}
           </div>
         </div>
-
-        <div className="text-center md:text-right">
-          <p className="text-sm text-muted-foreground">
+        <div className="text-center md:text-right shrink-0">
+          <p>
             Số lượng:{" "}
             <span className="font-bold text-primary">
-              {selectedSeats.size} ghế
+              {selectedSeatIds.size} ghế
             </span>
           </p>
           <p className="text-lg font-bold">
@@ -292,19 +219,16 @@ const ReservedSeatingSelector: React.FC<ReservedSeatingSelectorProps> = ({
             </span>
           </p>
         </div>
-
         <Button
-          onClick={handleHoldTickets}
-          disabled={isLoading || selectedSeats.size === 0}
+          onClick={handleProceedToCheckout}
+          disabled={selectedSeatIds.size === 0}
           size="lg"
           className="w-full md:w-auto"
         >
-          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Giữ vé
+          Thanh toán ({selectedSeatIds.size} vé)
         </Button>
       </div>
     </div>
   );
 };
-
 export default ReservedSeatingSelector;

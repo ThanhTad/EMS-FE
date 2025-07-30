@@ -1,22 +1,17 @@
-//components/features/tickets/GeneralAdmissionSelector.tsx
+// components/features/tickets/GeneralAdmissionSelector.tsx
 "use client";
 
-import {
-  GeneralAdmissionData,
-  TicketType,
-  TicketSelectionModeEnum,
-  GaItemDTO,
-  TicketHoldRequest,
-} from "@/types";
-import React, { useState } from "react";
-import { holdTicketsAPI } from "@/lib/api";
+import { GeneralAdmissionData, Ticket } from "@/types";
+import React, { useMemo } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Loader2, Minus, Plus, Ticket } from "lucide-react";
+import { Minus, Plus, Ticket as TicketIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useCartStore } from "@/stores/cartStore";
 
+// --- Sub-component cho một loại vé ---
 interface TicketItemProps {
-  ticket: TicketType;
+  ticket: Ticket;
   quantity: number;
   onQuantityChange: (newQuantity: number) => void;
 }
@@ -71,68 +66,41 @@ const TicketItem: React.FC<TicketItemProps> = ({
   );
 };
 
+// --- Component chính ---
 interface GeneralAdmissionSelectorProps {
   data: GeneralAdmissionData;
-  eventId: string;
 }
 
 const GeneralAdmissionSelector: React.FC<GeneralAdmissionSelectorProps> = ({
   data,
-  eventId,
 }) => {
-  const router = useRouter(); // Khởi tạo router
-  const [ticketQuantities, setTicketQuantities] = useState<Map<string, number>>(
-    new Map()
-  );
-  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const { updateGaQuantity, items: cartItems } = useCartStore((state) => ({
+    updateGaQuantity: state.updateGaQuantity,
+    items: state.items,
+  }));
 
-  const handleQuantityChange = (ticketId: string, newQuantity: number) => {
-    const newQuantities = new Map(ticketQuantities);
-    if (newQuantity > 0) {
-      newQuantities.set(ticketId, newQuantity);
-    } else {
-      newQuantities.delete(ticketId);
-    }
-    setTicketQuantities(newQuantities);
+  // Lấy số lượng từ cartStore để hiển thị
+  const ticketQuantities = useMemo(() => {
+    const quantities = new Map<string, number>();
+    Object.values(cartItems).forEach((item) => {
+      if (item.type === "GA") {
+        quantities.set(item.ticket.id, item.quantity);
+      }
+    });
+    return quantities;
+  }, [cartItems]);
+
+  const handleQuantityChange = (ticket: Ticket, newQuantity: number) => {
+    updateGaQuantity(ticket, newQuantity);
   };
 
-  // THAY ĐỔI 2: Sửa lại hàm handleHoldTickets để gửi một lần duy nhất
-  const handleHoldTickets = async () => {
-    // Chuyển đổi Map sang mảng gaItems
-    const gaItems: GaItemDTO[] = Array.from(ticketQuantities.entries())
-      .map(([ticketId, quantity]) => ({ ticketId, quantity }))
-      .filter((item) => item.quantity > 0);
-
-    if (gaItems.length === 0) {
+  const handleProceedToCheckout = () => {
+    if (totalItems === 0) {
       toast.error("Vui lòng chọn ít nhất một vé.");
       return;
     }
-
-    setIsLoading(true);
-    try {
-      // Tạo payload theo đúng DTO
-      const payload: TicketHoldRequest = {
-        selectionMode: TicketSelectionModeEnum.GENERAL_ADMISSION,
-        gaItems: gaItems,
-        seatIds: [], // Luôn là mảng rỗng
-      };
-
-      // Gọi API một lần duy nhất
-      const response = await holdTicketsAPI(eventId, payload);
-
-      toast.success(`Giữ vé thành công. Đang chuyển đến trang thanh toán...`);
-
-      // Chuyển hướng người dùng đến trang checkout
-      router.push(`/checkout?holdId=${response.holdId}`);
-    } catch (error) {
-      if (error instanceof Error) {
-        const errorMessage =
-          error.message || "Giữ vé thất bại. Vui lòng thử lại.";
-        toast.error(errorMessage);
-      }
-    } finally {
-      setIsLoading(false);
-    }
+    router.push("/checkout");
   };
 
   const totalItems = Array.from(ticketQuantities.values()).reduce(
@@ -141,28 +109,32 @@ const GeneralAdmissionSelector: React.FC<GeneralAdmissionSelectorProps> = ({
   );
   const totalPrice = Array.from(ticketQuantities.entries()).reduce(
     (sum, [ticketId, quantity]) => {
-      const ticket = data.availableTickets.find((t) => t.ticketId === ticketId);
+      const ticket = data.availableTickets.find((t) => t.id === ticketId);
       return sum + (ticket ? ticket.price * quantity : 0);
     },
     0
   );
 
+  // Giả sử statusId cho "On Sale" là một hằng số
+  const STATUS_ON_SALE = 301;
+
   return (
     <div className="p-4 border rounded-lg shadow-md flex flex-col gap-4">
       <h3 className="text-xl font-bold flex items-center gap-2">
-        <Ticket /> Chọn vé của bạn
+        <TicketIcon /> Chọn vé của bạn
       </h3>
       <div className="space-y-4">
-        {data.availableTickets.filter((t) => t.isOnSale).length > 0 ? (
+        {data.availableTickets.filter((t) => t.statusId === STATUS_ON_SALE)
+          .length > 0 ? (
           data.availableTickets
-            .filter((t) => t.isOnSale)
+            .filter((t) => t.statusId === STATUS_ON_SALE)
             .map((ticket) => (
               <TicketItem
-                key={ticket.ticketId}
+                key={ticket.id}
                 ticket={ticket}
-                quantity={ticketQuantities.get(ticket.ticketId) || 0}
+                quantity={ticketQuantities.get(ticket.id) || 0}
                 onQuantityChange={(newQuantity) =>
-                  handleQuantityChange(ticket.ticketId, newQuantity)
+                  handleQuantityChange(ticket, newQuantity)
                 }
               />
             ))
@@ -187,18 +159,12 @@ const GeneralAdmissionSelector: React.FC<GeneralAdmissionSelectorProps> = ({
               </span>
             </p>
           </div>
-          {/* THAY ĐỔI 3: onClick sẽ gọi trực tiếp handleHoldTickets */}
           <Button
-            onClick={handleHoldTickets}
-            disabled={isLoading}
+            onClick={handleProceedToCheckout}
             size="lg"
             className="w-full md:w-auto"
           >
-            {isLoading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              "Tiếp tục"
-            )}
+            Thanh toán
           </Button>
         </div>
       )}

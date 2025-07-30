@@ -56,7 +56,6 @@ import {
   CreateVenueRequest,
   UpdateVenueRequest,
   ZoneWithTicketsDTO,
-  SeatMapDetail,
   PaymentDetails,
   TicketPurchaseConfirmation,
   EventTicketingDetails,
@@ -64,11 +63,26 @@ import {
   HoldResponse,
   DialogflowRequest,
   DialogflowResponse,
+  HoldDetailsResponseDTO,
+  PurchaseDetailDTO,
+  MockFinalizeRequestDTO,
+  PaymentCreationRequestDTO,
+  PaymentCreationResultDTO,
+  VerifyPaymentRequestDTO,
+  SeatMapDetails,
 } from "@/types";
+import { stringify } from "qs";
 
-const API = axios.create({
+export const API = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
   withCredentials: true,
+  paramsSerializer: {
+    serialize: (params) => {
+      // Sử dụng qs.stringify để xử lý mảng đúng cách cho Spring Boot
+      // arrayFormat: 'repeat' sẽ tạo ra: categoryIds=val1&categoryIds=val2
+      return stringify(params, { arrayFormat: "repeat" });
+    },
+  },
 });
 
 // =========================================
@@ -182,36 +196,56 @@ export const uploadAvatar = (file: Blob): Promise<{ url: string }> => {
 // =========================================
 // Venues (NEW)
 // =========================================
-export const getVenues = (params: {
+/**
+ * [ADMIN] Lấy danh sách các địa điểm (có phân trang và tìm kiếm).
+ */
+export const adminGetVenues = (params: {
   page?: number;
   size?: number;
   keyword?: string;
   sort?: string;
 }): Promise<Paginated<Venue>> =>
-  API.get<ApiResponse<Paginated<Venue>>>("/api/v1/venues", { params }).then(
+  // SỬA LỖI: Thêm tiền tố /admin
+  API.get<ApiResponse<Paginated<Venue>>>("/api/v1/admin/venues", {
+    params,
+  }).then((res) => res.data.data);
+
+/**
+ * [ADMIN] Lấy thông tin chi tiết của một địa điểm.
+ */
+export const adminGetVenueById = (id: string): Promise<Venue> =>
+  // SỬA LỖI: Thêm tiền tố /admin
+  API.get<ApiResponse<Venue>>(`/api/v1/admin/venues/${id}`).then(
     (res) => res.data.data
   );
 
-export const getVenueById = (id: string): Promise<Venue> =>
-  API.get<ApiResponse<Venue>>(`/api/v1/venues/${id}`).then(
+/**
+ * [ADMIN] Tạo một địa điểm mới.
+ */
+export const adminCreateVenue = (data: CreateVenueRequest): Promise<Venue> =>
+  // SỬA LỖI: Thêm tiền tố /admin
+  API.post<ApiResponse<Venue>>("/api/v1/admin/venues", data).then(
     (res) => res.data.data
   );
 
-export const createVenue = (data: CreateVenueRequest): Promise<Venue> =>
-  API.post<ApiResponse<Venue>>("/api/v1/venues", data).then(
-    (res) => res.data.data
-  );
-
-export const updateVenue = (
+/**
+ * [ADMIN] Cập nhật một địa điểm đã có.
+ */
+export const adminUpdateVenue = (
   id: string,
   data: UpdateVenueRequest
 ): Promise<Venue> =>
-  API.put<ApiResponse<Venue>>(`/api/v1/venues/${id}`, data).then(
+  // SỬA LỖI: Thêm tiền tố /admin
+  API.put<ApiResponse<Venue>>(`/api/v1/admin/venues/${id}`, data).then(
     (res) => res.data.data
   );
 
-export const deleteVenue = (id: string): Promise<void> =>
-  API.delete(`/api/v1/venues/${id}`);
+/**
+ * [ADMIN] Xóa một địa điểm.
+ */
+export const adminDeleteVenue = (id: string): Promise<void> =>
+  // SỬA LỖI: Thêm tiền tố /admin
+  API.delete(`/api/v1/admin/venues/${id}`);
 
 // =========================================
 // Seat Maps & Sections (NEW)
@@ -232,8 +266,8 @@ export const getZonedTicketsForEvent = (
     `/api/v1/events/${eventId}/zoned-tickets`
   ).then((res) => res.data.data);
 
-export const getSeatMapDetails = (seatMapId: string): Promise<SeatMapDetail> =>
-  API.get<ApiResponse<SeatMapDetail>>(
+export const getSeatMapDetails = (seatMapId: string): Promise<SeatMapDetails> =>
+  API.get<ApiResponse<SeatMapDetails>>(
     `/api/v1/seat-maps/${seatMapId}/details`
   ).then((res) => res.data.data);
 
@@ -261,9 +295,9 @@ export const deleteSeatMap = (id: string): Promise<void> =>
 export const getEvents = (
   params: EventSearchParams
 ): Promise<Paginated<Event>> =>
-  API.get<ApiResponse<Paginated<Event>>>("/api/v1/events", { params }).then(
-    (res) => res.data.data
-  );
+  API.get<ApiResponse<Paginated<Event>>>("/api/v1/events/public", {
+    params,
+  }).then((res) => res.data.data);
 
 export const getEventBySlug = (slug: string): Promise<Event> =>
   API.get<ApiResponse<Event>>(`/api/v1/events/slug/${slug}`).then(
@@ -345,10 +379,12 @@ export const getPurchaseByTransactionId = (
     `/api/v1/purchases/transaction/${transactionId}`
   ).then((res) => res.data.data);
 
-export const getPurchaseById = (purchaseId: string): Promise<TicketPurchase> =>
-  API.get<ApiResponse<TicketPurchase>>(`/api/v1/purchases/${purchaseId}`).then(
-    (res) => res.data.data
-  );
+export const getPurchaseDetailsById = (
+  purchaseId: string
+): Promise<PurchaseDetailDTO> =>
+  API.get<ApiResponse<PurchaseDetailDTO>>(
+    `/api/v1/users/me/purchases/${purchaseId}`
+  ).then((res) => res.data.data);
 
 export const getUserPurchases = (
   userId: string,
@@ -482,8 +518,19 @@ export const adminResetUserPassword = (
   API.patch(`/api/v1/admin/users/${userId}/reset-password`, payload);
 
 // --- Admin: Events ---
+export const adminGetEvents = (params: {
+  page?: number;
+  size?: number;
+  sort?: string; // Ví dụ: "createdAt,desc"
+}): Promise<Paginated<Event>> =>
+  // SỬA ĐỔI: URL đúng là /events/all
+  API.get<ApiResponse<Paginated<Event>>>("/api/v1/events/admin", {
+    params,
+  }).then((res) => res.data.data);
+
 export const adminCreateEvent = (data: CreateEventRequest): Promise<Event> =>
-  API.post<ApiResponse<Event>>("/api/v1/admin/events", data).then(
+  // SỬA LỖI: URL đúng là /events/admin
+  API.post<ApiResponse<Event>>("/api/v1/events/admin", data).then(
     (res) => res.data.data
   );
 
@@ -491,16 +538,29 @@ export const adminUpdateEvent = (
   id: string,
   data: UpdateEventRequest
 ): Promise<Event> =>
-  API.put<ApiResponse<Event>>(`/api/v1/admin/events/${id}`, data).then(
+  // SỬA LỖI: URL đúng là /events/admin/{id}
+  API.put<ApiResponse<Event>>(`/api/v1/events/admin/${id}`, data).then(
     (res) => res.data.data
   );
 
 export const adminDeleteEvent = (id: string): Promise<void> =>
-  API.delete(`/api/v1/admin/events/${id}`);
+  // SỬA LỖI: URL đúng là /events/admin/{id}
+  API.delete(`/api/v1/events/admin/${id}`);
+
+// Các hàm admin khác (approve, reject) cũng sẽ theo cấu trúc này
+export const adminApproveEvent = (id: string): Promise<Event> =>
+  API.patch<ApiResponse<Event>>(`/api/v1/events/admin/${id}/approve`).then(
+    (res) => res.data.data
+  );
+
+export const adminRejectEvent = (id: string): Promise<Event> =>
+  API.patch<ApiResponse<Event>>(`/api/v1/events/admin/${id}/reject`).then(
+    (res) => res.data.data
+  );
 
 // --- Admin: Categories ---
 export const adminCreateCategory = (data: CategoryRequest): Promise<Category> =>
-  API.post<ApiResponse<Category>>("/api/v1/admin/categories", data).then(
+  API.post<ApiResponse<Category>>("/api/v1/categories", data).then(
     (res) => res.data.data
   );
 
@@ -508,38 +568,59 @@ export const adminUpdateCategory = (
   id: string,
   data: Partial<Category>
 ): Promise<Category> =>
-  API.put<ApiResponse<Category>>(`/api/v1/admin/categories/${id}`, data).then(
+  API.put<ApiResponse<Category>>(`/api/v1/categories/${id}`, data).then(
     (res) => res.data.data
   );
 
 export const adminDeleteCategory = (id: string): Promise<void> =>
-  API.delete(`/api/v1/admin/categories/${id}`);
+  API.delete(`/api/v1/categories/${id}`);
 
 // --- Admin: Tickets ---
 export const adminGetTicketsByEvent = (
   eventId: string,
-  params?: { page?: number; size?: number }
+  params?: { page?: number; size?: number; sort?: string }
 ): Promise<Paginated<Ticket>> =>
   API.get<ApiResponse<Paginated<Ticket>>>(
-    `/api/v1/admin/events/${eventId}/tickets`,
+    `/api/v1/admin/events/${eventId}/tickets`, // <-- URL này đã đúng
     { params }
   ).then((res) => res.data.data);
 
-export const adminCreateTicket = (data: CreateTicketRequest): Promise<Ticket> =>
-  API.post<ApiResponse<Ticket>>("/api/v1/admin/tickets", data).then(
-    (res) => res.data.data
-  );
+/**
+ * [ADMIN] Tạo một loại vé mới cho một sự kiện.
+ * SỬA LỖI: Cần truyền eventId để xây dựng URL.
+ */
+export const adminCreateTicket = (
+  eventId: string,
+  data: Omit<CreateTicketRequest, "eventId"> // Omit eventId vì nó đã có trong URL
+): Promise<Ticket> =>
+  API.post<ApiResponse<Ticket>>(
+    `/api/v1/admin/events/${eventId}/tickets`, // <-- URL đã sửa
+    data
+  ).then((res) => res.data.data);
 
+/**
+ * [ADMIN] Cập nhật một loại vé.
+ * SỬA LỖI: Cần truyền eventId và ticketId (thay vì chỉ id).
+ */
 export const adminUpdateTicket = (
-  id: string,
+  eventId: string,
+  ticketId: string,
   data: UpdateTicketRequest
 ): Promise<Ticket> =>
-  API.put<ApiResponse<Ticket>>(`/api/v1/admin/tickets/${id}`, data).then(
-    (res) => res.data.data
-  );
+  API.put<ApiResponse<Ticket>>(
+    `/api/v1/admin/events/${eventId}/tickets/${ticketId}`, // <-- URL đã sửa
+    data
+  ).then((res) => res.data.data);
 
-export const adminDeleteTicket = (id: string): Promise<void> =>
-  API.delete(`/api/v1/admin/tickets/${id}`);
+/**
+ * [ADMIN] Xóa một loại vé.
+ * SỬA LỖI: Cần truyền eventId và ticketId.
+ */
+export const adminDeleteTicket = (
+  eventId: string,
+  ticketId: string
+): Promise<void> =>
+  API.delete(`/api/v1/admin/events/${eventId}/tickets/${ticketId}`); // <-- URL đã sửa
 
 // --- Admin: Statuses ---
 export const getAllStatuses = (): Promise<StatusCode[]> =>
@@ -549,12 +630,12 @@ export const getAllStatuses = (): Promise<StatusCode[]> =>
 
 // <<< THÊM HÀM NÀY
 /** Lấy danh sách đơn hàng đã được rút gọn cho trang "Vé của tôi" */
-export const getTicketPurchaseDetailsByUser = (
-  userId: string,
-  params: { page: number; size: number }
-): Promise<Paginated<TicketPurchaseDetail>> =>
+export const getMyTicketPurchases = (params: {
+  page: number;
+  size: number;
+}): Promise<Paginated<TicketPurchaseDetail>> =>
   API.get<ApiResponse<Paginated<TicketPurchaseDetail>>>(
-    `/api/v1/users/${userId}/purchases/details`,
+    `/api/v1/users/me/purchases`,
     { params }
   ).then((res) => res.data.data);
 
@@ -605,19 +686,6 @@ export const adminGetOrganizers = (): Promise<User[]> =>
     (res) => res.data.data
   );
 
-interface AdminGetEventsParams {
-  page?: number;
-  size?: number;
-  sort?: string;
-  organizerId?: string;
-}
-export const adminGetEvents = (
-  params: AdminGetEventsParams
-): Promise<Paginated<Event>> =>
-  API.get<ApiResponse<Paginated<Event>>>("/api/v1/admin/events", {
-    params,
-  }).then((res) => res.data.data);
-
 interface AdminGetTicketsParams {
   page?: number;
   size?: number;
@@ -641,27 +709,6 @@ export const adminGetEventsByStatus = (
   API.get<ApiResponse<Paginated<Event>>>(`/api/v1/admin/events`, {
     params: { ...params, status }, // Thêm status vào query params
   }).then((res) => res.data.data);
-
-/**
- * [ADMIN] Duyệt một sự kiện.
- * @param eventId - ID của sự kiện cần duyệt
- * @returns Thông tin sự kiện đã được cập nhật
- */
-export const adminApproveEvent = (eventId: string): Promise<Event> =>
-  API.patch<ApiResponse<Event>>(`/api/v1/admin/events/${eventId}/approve`).then(
-    (res) => res.data.data
-  );
-
-/**
- * [ADMIN] Từ chối một sự kiện.
- * @param eventId - ID của sự kiện cần từ chối
- * @param payload - Dữ liệu chứa lý do từ chối { reason: string }
- * @returns Thông tin sự kiện đã được cập nhật
- */
-export const adminRejectEvent = (eventId: string): Promise<Event> =>
-  API.patch<ApiResponse<Event>>(`/api/v1/admin/events/${eventId}/reject`).then(
-    (res) => res.data.data
-  );
 
 /**
  * Lấy tất cả thông tin sự kiện và vé trong một lần gọi duy nhất.
@@ -690,6 +737,13 @@ export const holdTicketsAPI = (
   API.post<ApiResponse<HoldResponse>>(
     `/api/v1/ticketing/events/${eventId}/hold`,
     payload
+  ).then((res) => res.data.data);
+
+export const getHoldDetailsAPI = (
+  holdId: string
+): Promise<HoldDetailsResponseDTO> =>
+  API.get<ApiResponse<HoldDetailsResponseDTO>>(
+    `/api/v1/holds/${holdId}/details`
   ).then((res) => res.data.data);
 
 /**
@@ -763,3 +817,44 @@ export const sendChatMessageToApi = async (
     );
   }
 };
+
+export const releaseTicketsBeaconAPI = (holdId: string): void => {
+  const url = `${process.env.NEXT_PUBLIC_API_URL}/api/v1/ticketing/hold/${holdId}/release`;
+
+  // Backend cần hỗ trợ phương thức POST cho endpoint này để sendBeacon hoạt động.
+  // Dữ liệu có thể là null hoặc một đối tượng nhỏ nếu cần.
+  navigator.sendBeacon(url);
+};
+
+/**
+ * Khởi tạo thanh toán và lấy URL redirect.
+ */
+export const createPaymentAPI = (
+  payload: PaymentCreationRequestDTO
+): Promise<PaymentCreationResultDTO> =>
+  API.post<ApiResponse<PaymentCreationResultDTO>>(
+    "/api/v1/payments/create",
+    payload
+  ).then((res) => res.data.data);
+
+/**
+ * Gửi kết quả từ cổng thanh toán về BE để xác thực.
+ */
+export const verifyPaymentAPI = (
+  payload: VerifyPaymentRequestDTO
+): Promise<TicketPurchaseConfirmation> =>
+  API.post<ApiResponse<TicketPurchaseConfirmation>>(
+    `/api/v1/payments/verify/${payload.provider}`,
+    payload.params
+  ).then((res) => res.data.data);
+
+/**
+ * [DEV ONLY] Hoàn tất thanh toán giả lập.
+ */
+export const mockFinalizeAPI = (
+  payload: MockFinalizeRequestDTO
+): Promise<TicketPurchaseConfirmation> =>
+  API.post<ApiResponse<TicketPurchaseConfirmation>>(
+    "/api/v1/payments/mock-finalize",
+    payload
+  ).then((res) => res.data.data);

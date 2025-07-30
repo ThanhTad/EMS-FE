@@ -1,157 +1,253 @@
 // components/checkout/CheckoutFlow.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useCartStore } from "@/stores/cartStore";
-// SỬ DỤNG CÁC HÀM API MỚI
-import { holdTicketsAPI, checkoutAPI, releaseTicketsAPI } from "@/lib/api";
-import { createHoldRequestDTOFromCart } from "@/lib/utils";
+import {
+  holdTicketsAPI,
+  getHoldDetailsAPI,
+  releaseTicketsBeaconAPI,
+  mockFinalizeAPI,
+  createPaymentAPI,
+} from "@/lib/api";
+import { createHoldRequestDTO } from "@/lib/utils";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { CartSummary } from "./CartSummary";
 import { PaymentForm } from "./PaymentForm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PaymentDetails } from "@/types";
-import { useRouter } from "next/navigation";
+import { AlertCircle, Loader2 } from "lucide-react";
+import { HoldDetailsResponseDTO } from "@/types";
 
-type CheckoutStep = "CART" | "PAYMENT" | "CONFIRMATION" | "ERROR";
+// Định nghĩa các bước của quy trình checkout
+type CheckoutStep = "LOADING" | "CART_SUMMARY" | "PAYMENT" | "ERROR";
 
 export function CheckoutFlow() {
-  const [step, setStep] = useState<CheckoutStep>("CART");
-  const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState<CheckoutStep | null>(null); // null = đang loading ban đầu
   const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false); // Loading cho các action
 
-  const [holdId, setHoldId] = useState<string | null>(null);
-  const [holdExpiresAt, setHoldExpiresAt] = useState<string | null>(null);
+  // State duy nhất để lưu thông tin phiên giữ chỗ
+  const [holdInfo, setHoldInfo] = useState<HoldDetailsResponseDTO | null>(null);
+
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initializationRef = useRef(false); // Đảm bảo chỉ init một lần
 
-  const { event, clearCart } = useCartStore((state) => ({
-    event: state.event,
-    clearCart: state.clearCart,
-  }));
+  const items = useCartStore((state) => state.items);
+  const eventInfo = useCartStore((state) => state.eventInfo);
+  const [isPurchaseComplete, setIsPurchaseComplete] = useState(false);
 
-  // Hook để tự động release vé khi người dùng rời khỏi trang
+  // Memoized function để fetch hold details
+  const fetchHoldDetails = useCallback(async (holdId: string) => {
+    try {
+      const holdDetails = await getHoldDetailsAPI(holdId);
+      setHoldInfo(holdDetails);
+      setStep("PAYMENT");
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message || "Phiên giữ chỗ không hợp lệ hoặc đã hết hạn.");
+        setStep("ERROR");
+      }
+    }
+  }, []);
+
+  // Effect initialization - với dependencies đúng
   useEffect(() => {
-    return () => {
-      if (holdId) {
-        // Gửi yêu cầu nhả vé mà không cần chờ kết quả
-        // Đây là một hành động "dọn dẹp"
-        releaseTicketsAPI(holdId).catch((err) =>
-          console.error("Failed to auto-release hold:", err)
-        );
+    // Tránh chạy lại nếu đã init
+    if (initializationRef.current) return;
+    initializationRef.current = true;
+
+    const holdIdFromUrl = searchParams.get("holdId");
+
+    if (holdIdFromUrl) {
+      // === LUỒNG MUA NHANH: Có holdId trên URL ===
+      fetchHoldDetails(holdIdFromUrl);
+    } else {
+      // === LUỒNG GIỎ HÀNG: Không có holdId trên URL ===
+      if (Object.keys(items).length === 0) {
+        setError("Giỏ hàng của bạn đang trống.");
+        setStep("ERROR");
+      } else {
+        setStep("CART_SUMMARY");
+      }
+    }
+  }, [searchParams, items, fetchHoldDetails]); // Dependencies đúng
+
+  // Effect để tự động giải phóng vé khi người dùng rời trang
+  useEffect(() => {
+    const currentHoldId = holdInfo?.holdId;
+    // Chỉ chạy nếu có holdId và chưa hoàn tất thanh toán
+    if (!currentHoldId || isPurchaseComplete) return;
+
+    const releaseOnPageHide = () => {
+      // Chỉ thực hiện khi người dùng rời khỏi trang hoàn toàn
+      // (visibilityState sẽ là 'hidden' khi chuyển tab, unload khi đóng)
+      if (document.visibilityState === "hidden") {
+        releaseTicketsBeaconAPI(currentHoldId);
       }
     };
-  }, [holdId]);
 
-  const handleProceedToPayment = async () => {
-    if (!event) {
-      setError("Không có thông tin sự kiện để tiếp tục.");
-      setStep("ERROR");
-      return;
-    }
+    // 'visibilitychange' là sự kiện tốt hơn 'beforeunload' vì nó đáng tin cậy hơn
+    // và hoạt động tốt trên mobile khi chuyển app.
+    document.addEventListener("visibilitychange", releaseOnPageHide);
 
-    setIsLoading(true);
+    return () => {
+      document.removeEventListener("visibilitychange", releaseOnPageHide);
+    };
+  }, [holdInfo?.holdId, isPurchaseComplete]);
+
+  // HÀNH ĐỘNG: Tạo phiên giữ chỗ từ giỏ hàng hiện tại
+  const createHoldFromCart = useCallback(async () => {
+    if (!eventInfo || Object.keys(items).length === 0) return;
+
+    setIsProcessing(true);
     setError(null);
-    try {
-      const requestDTO = createHoldRequestDTOFromCart();
-      // GỌI API MỚI: holdTicketsAPI
-      const response = await holdTicketsAPI(event.id, requestDTO);
 
-      setHoldId(response.holdId);
-      setHoldExpiresAt(response.expiresAt);
-      clearCart();
+    try {
+      const requestDTO = createHoldRequestDTO(items, eventInfo);
+      const response = await holdTicketsAPI(eventInfo.id, requestDTO);
+      const details: HoldDetailsResponseDTO = {
+        ...response,
+        eventId: eventInfo.id,
+        request: requestDTO,
+      };
+
+      setHoldInfo(details);
       setStep("PAYMENT");
     } catch (err) {
       if (err instanceof Error) {
         setError(
-          err.message ||
-            "Không thể giữ chỗ. Vé có thể đã được bán hết. Vui lòng thử lại."
+          err.message || "Không thể giữ chỗ. Vé có thể đã được bán hết."
         );
       }
       setStep("ERROR");
     } finally {
-      setIsLoading(false);
+      setIsProcessing(false);
+    }
+  }, [eventInfo, items]);
+
+  // HÀNH ĐỘNG: Xử lý thanh toán chuyển hướng (MoMo/VNPAY)
+  const processRedirectPayment = async (method: "MOMO" | "VNPAY") => {
+    if (!holdInfo) return;
+    setIsProcessing(true);
+    setStep("LOADING");
+    setError(null);
+    try {
+      const response = await createPaymentAPI({
+        holdId: holdInfo.holdId,
+        paymentMethod: method,
+      });
+      setIsPurchaseComplete(true);
+      setHoldInfo(null);
+      // Chuyển hướng người dùng đến URL của cổng thanh toán
+      window.location.href = response.paymentUrl;
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message || "Không thể tạo yêu cầu thanh toán.");
+      }
+      setStep("ERROR");
+      setIsProcessing(false);
     }
   };
 
-  const handleFinalize = async (paymentDetails: PaymentDetails) => {
-    if (!holdId) return;
-    setIsLoading(true);
+  // HÀNH ĐỘNG: Xử lý thanh toán giả lập
+  const processMockPayment = async () => {
+    if (!holdInfo) return;
+    setStep("LOADING");
     setError(null);
     try {
-      // Truyền thẳng `paymentDetails` vào API
-      const response = await checkoutAPI(holdId, paymentDetails);
-
+      const response = await mockFinalizeAPI({ holdId: holdInfo.holdId });
+      setIsPurchaseComplete(true);
+      setHoldInfo(null);
       router.push(`/checkout/success?purchaseId=${response.purchaseId}`);
     } catch (err) {
       if (err instanceof Error) {
-        setError(
-          err.message ||
-            "Thanh toán thất bại. Vui lòng thử lại hoặc liên hệ hỗ trợ."
-        );
+        setError(err.message || "Thanh toán giả lập thất bại.");
+        setStep("ERROR");
       }
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const handleHoldExpired = () => {
+  // HÀNH ĐỘNG: Xử lý khi hết giờ giữ chỗ
+  const handleHoldExpired = useCallback(() => {
     setError("Phiên giữ chỗ của bạn đã hết hạn. Vui lòng chọn lại vé.");
     setStep("ERROR");
-    setHoldId(null); // Xóa holdId đã hết hạn
-  };
+    setHoldInfo(null);
+  }, []);
 
-  const handleRetry = () => {
-    setError(null);
-    setStep("CART");
-  };
-
-  // Render component dựa trên bước hiện tại
-  const renderStep = () => {
-    if (error) {
-      return (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Đã có lỗi xảy ra</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-          <Button onClick={handleRetry} className="mt-4">
-            Quay lại giỏ hàng
-          </Button>
-        </Alert>
-      );
+  // HÀNH ĐỘNG: Khi người dùng muốn thử lại sau lỗi
+  const resetAndRedirect = useCallback(() => {
+    if (eventInfo?.slug) {
+      router.push(`/events/${eventInfo.slug}`);
+    } else {
+      router.push("/");
     }
-    // ... phần render các step khác giữ nguyên ...
+  }, [eventInfo?.slug, router]);
+
+  // Show loading chỉ khi step = null (đang khởi tạo) hoặc khi đang xử lý API
+  if (step === null) {
+    return (
+      <div className="max-w-2xl mx-auto my-8">
+        <div className="flex justify-center items-center p-20">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+      </div>
+    );
+  }
+
+  // --- LOGIC RENDER ---
+  const renderContent = () => {
     switch (step) {
-      case "CART":
+      case "LOADING":
         return (
-          <CartSummary
-            onProceed={handleProceedToPayment}
-            isLoading={isLoading}
-          />
+          <div className="flex justify-center items-center py-20">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          </div>
         );
+
+      case "ERROR":
+        return (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Đã có lỗi xảy ra!</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+            <Button
+              onClick={resetAndRedirect}
+              variant="link"
+              className="p-0 h-auto mt-2 text-destructive"
+              disabled={isProcessing}
+            >
+              Quay lại và thử lại
+            </Button>
+          </Alert>
+        );
+
       case "PAYMENT":
-        if (holdId && holdExpiresAt) {
+        if (holdInfo) {
           return (
             <PaymentForm
-              holdId={holdId}
-              expiresAt={holdExpiresAt}
-              onFinalize={handleFinalize}
+              holdDetails={holdInfo}
+              onFinalizeRedirect={processRedirectPayment}
+              onFinalizeMock={processMockPayment}
               onExpire={handleHoldExpired}
-              isLoading={isLoading}
+              isLoading={isProcessing}
             />
           );
         }
-        return <p>Đang tải...</p>; // Hoặc skeleton
+        return null;
+
+      case "CART_SUMMARY":
       default:
         return (
           <CartSummary
-            onProceed={handleProceedToPayment}
-            isLoading={isLoading}
+            onProceed={createHoldFromCart}
+            isLoading={isProcessing}
           />
         );
     }
   };
 
-  return <div className="max-w-2xl mx-auto my-8">{renderStep()}</div>;
+  return <div className="max-w-2xl mx-auto my-8">{renderContent()}</div>;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, MouseEvent, WheelEvent, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, MouseEvent } from "react";
 
 interface Point {
   x: number;
@@ -21,11 +21,12 @@ export const usePanAndZoom = () => {
     position: { x: 0, y: 0 },
   });
 
+  const [isDragging, setIsDragging] = useState(false);
   const isPanning = useRef(false);
+  const isZoomActive = useRef(false);
   const lastPointerPosition = useRef<Point>({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // --- Chức năng Zoom ---
   const applyZoom = useCallback((newScale: number, zoomCenter: Point) => {
     setState((prevState) => {
       const clampedScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
@@ -46,40 +47,48 @@ export const usePanAndZoom = () => {
   const zoomIn = useCallback(() => {
     if (!svgRef.current) return;
     const { width, height } = svgRef.current.getBoundingClientRect();
-    applyZoom(state.scale * 1.2, { x: width / 2, y: height / 2 });
-  }, [state.scale, applyZoom]);
+    setState((prev) => {
+      const newScale = prev.scale * 1.2;
+      const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+      const factor = clamped / prev.scale;
+      const newX = width / 2 - (width / 2 - prev.position.x) * factor;
+      const newY = height / 2 - (height / 2 - prev.position.y) * factor;
+
+      return {
+        scale: clamped,
+        position: { x: newX, y: newY },
+      };
+    });
+  }, []);
 
   const zoomOut = useCallback(() => {
     if (!svgRef.current) return;
     const { width, height } = svgRef.current.getBoundingClientRect();
-    applyZoom(state.scale / 1.2, { x: width / 2, y: height / 2 });
-  }, [state.scale, applyZoom]);
+    setState((prev) => {
+      const newScale = prev.scale / 1.2;
+      const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+      const factor = clamped / prev.scale;
+      const newX = width / 2 - (width / 2 - prev.position.x) * factor;
+      const newY = height / 2 - (height / 2 - prev.position.y) * factor;
+
+      return {
+        scale: clamped,
+        position: { x: newX, y: newY },
+      };
+    });
+  }, []);
 
   const resetTransform = useCallback(() => {
     setState({ scale: 1, position: { x: 0, y: 0 } });
   }, []);
 
-  // --- Xử lý sự kiện chuột ---
-  const onWheel = useCallback(
-    (event: WheelEvent<SVGSVGElement>) => {
-      event.preventDefault();
-      const { deltaY, clientX, clientY } = event;
-      if (!svgRef.current) return;
-
-      const rect = svgRef.current.getBoundingClientRect();
-      const zoomCenter = {
-        x: clientX - rect.left,
-        y: clientY - rect.top,
-      };
-
-      const newScale = state.scale * (1 - deltaY * 0.001);
-      applyZoom(newScale, zoomCenter);
-    },
-    [state.scale, applyZoom]
-  );
+  const onClick = useCallback(() => {
+    isZoomActive.current = true;
+  }, []);
 
   const onMouseDown = useCallback((event: MouseEvent<SVGSVGElement>) => {
     isPanning.current = true;
+    setIsDragging(true);
     lastPointerPosition.current = { x: event.clientX, y: event.clientY };
   }, []);
 
@@ -88,11 +97,11 @@ export const usePanAndZoom = () => {
     const dx = event.clientX - lastPointerPosition.current.x;
     const dy = event.clientY - lastPointerPosition.current.y;
 
-    setState((prevState) => ({
-      ...prevState,
+    setState((prev) => ({
+      ...prev,
       position: {
-        x: prevState.position.x + dx,
-        y: prevState.position.y + dy,
+        x: prev.position.x + dx,
+        y: prev.position.y + dy,
       },
     }));
     lastPointerPosition.current = { x: event.clientX, y: event.clientY };
@@ -100,21 +109,54 @@ export const usePanAndZoom = () => {
 
   const onMouseUpOrLeave = useCallback(() => {
     isPanning.current = false;
+    setIsDragging(false);
   }, []);
 
-  // --- Trả về các props và hàm cần thiết ---
+  const onMouseLeave = useCallback(() => {
+    isZoomActive.current = false;
+    isPanning.current = false;
+    setIsDragging(false);
+  }, []);
+
+  // ✅ Native wheel listener with passive: false to prevent page scroll
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!isZoomActive.current) return;
+
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const zoomCenter = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      };
+
+      const newScale = state.scale * (1 - event.deltaY * 0.001);
+      applyZoom(newScale, zoomCenter);
+    };
+
+    svg.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      svg.removeEventListener("wheel", handleWheel);
+    };
+  }, [applyZoom, state.scale]);
+
   return {
     svgRef,
     transform: `translate(${state.position.x}, ${state.position.y}) scale(${state.scale})`,
     zoomIn,
     zoomOut,
     resetTransform,
+    cursor: isDragging ? "grabbing" : "grab",
     panAndZoomHandlers: {
-      onWheel,
+      onClick,
       onMouseDown,
       onMouseMove,
       onMouseUp: onMouseUpOrLeave,
-      onMouseLeave: onMouseUpOrLeave,
+      onMouseLeave,
     },
   };
 };

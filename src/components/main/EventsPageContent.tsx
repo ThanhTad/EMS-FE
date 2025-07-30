@@ -1,6 +1,5 @@
 //app/(main)/events/EventsPageContent.tsx
 import EventCard from "@/components/shared/EventCard";
-import PaginationControls from "@/components/shared/PaginationControls";
 import EventFilters from "@/components/features/events/EventFilters";
 import EventSort from "@/components/features/events/EventSort";
 import { Separator } from "@/components/ui/separator";
@@ -14,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { getEvents, searchEvents } from "@/lib/api";
 import { EventSearchParams } from "@/types";
+import ServerPaginationControls from "../shared/ServerPaginationControls";
 
 interface SearchParams {
   [key: string]: string | string[] | undefined;
@@ -89,14 +89,16 @@ async function EventListContent({
   // Chúng ta sẽ kiểm tra xem có bộ lọc nào được áp dụng không.
   // Nếu có (ngoài page, size, sort), chúng ta dùng searchEvents. Nếu không, dùng getEvents.
   const hasActiveFilters =
-    "keyword" in filters ||
-    "categoryId" in filters ||
-    "statusId" in filters ||
-    "start" in filters ||
-    "end" in filters;
+    !!filters.keyword ||
+    !!filters.categoryIds?.length ||
+    !!filters.statusId ||
+    !!filters.start ||
+    !!filters.end;
+
   const eventsData = await (hasActiveFilters
     ? searchEvents(filters)
     : getEvents(filters));
+
   const {
     content: events,
     totalPages,
@@ -125,7 +127,7 @@ async function EventListContent({
       </div>
 
       <div className="mt-10">
-        <PaginationControls currentPage={page} totalPages={totalPages} />
+        <ServerPaginationControls currentPage={page} totalPages={totalPages} />
       </div>
     </>
   );

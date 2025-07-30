@@ -60,7 +60,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await getCurrentUserAPI();
       if (response) {
         setUser(response);
-        console.log("User fetched successfully:", response);
       } else {
         setUser(null);
       }

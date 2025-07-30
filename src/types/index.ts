@@ -217,9 +217,36 @@ export interface AuthContextType {
 // Venue & Seating (NEW)
 // =========================================
 
+export interface MapObject {
+  label: string;
+  svgPath: string; // Sử dụng svgPath cho mọi hình dạng
+  style?: Record<string, string | number>; // Cho phép tùy chỉnh style
+}
+
 export interface SeatCoordinates {
   x: number;
   y: number;
+}
+
+// Cấu trúc cho layoutData của sơ đồ tổng thể
+export interface SeatMapLayoutData {
+  viewBox: string; // Ví dụ: "0 0 1200 800"
+  backgroundImageUrl?: string;
+  stage?: MapObject;
+  entrances?: MapObject[];
+  // Có thể thêm các đối tượng tĩnh khác ở đây
+  otherObjects?: MapObject[];
+}
+
+// Cấu trúc cho layoutData của một section
+export interface SectionLayoutData {
+  svgPath: string;
+  style: {
+    default: { fill: string; stroke?: string; strokeWidth?: number };
+    hover?: { fill: string };
+    selected?: { stroke: string; strokeWidth?: number };
+  };
+  labelPosition?: { x: number; y: number };
 }
 
 export interface Venue {
@@ -237,9 +264,10 @@ export interface SeatMap {
   venueId: string;
   name: string;
   description?: string;
-  createdAt: ISODateString;
-  updatedAt: ISODateString;
-  venue?: Venue; // Populated from backend
+  createdAt?: ISODateString;
+  updatedAt?: ISODateString;
+  venue?: Venue;
+  layoutData?: SeatMapLayoutData;
 }
 
 export interface SeatSection {
@@ -247,21 +275,22 @@ export interface SeatSection {
   seatMapId: string;
   name: string;
   capacity: number;
-  layoutData?: Record<string, unknown>; // jsonb
+  layoutData?: SectionLayoutData;
+  seats: Seat[];
   createdAt: ISODateString;
   updatedAt: ISODateString;
 }
 
-export interface Seat {
-  id: string;
-  sectionId: string;
-  rowLabel: string;
-  seatNumber: string;
-  seatType: string;
-  coordinates?: SeatCoordinates; // jsonb
-  createdAt: ISODateString;
-  updatedAt: ISODateString;
-}
+// export interface Seat {
+//   id: string;
+//   sectionId: string;
+//   rowLabel: string;
+//   seatNumber: string;
+//   seatType: string;
+//   coordinates?: SeatCoordinates; // jsonb
+//   createdAt: ISODateString;
+//   updatedAt: ISODateString;
+// }
 
 export interface CreateVenueRequest {
   name: string;
@@ -456,18 +485,15 @@ export interface TicketPurchase {
  * Giúp trang tải nhanh hơn bằng cách chỉ lấy các thông tin cần thiết.
  */
 export interface TicketPurchaseDetail {
-  id: string; // ID của đơn hàng (purchase id)
-  eventId: string;
+  id: string;
   eventTitle: string;
-  eventCoverImageUrl?: string;
-  eventStartDate: ISODateString;
-  eventVenueName: string; // Tên địa điểm
-  eventCity: string; // Thành phố
-  purchaseDate: ISODateString;
+  eventImageUrl: string; // <-- Thêm trường này
+  eventId: string;
+  customerName: string;
+  purchaseDate: string; // Giữ là string để dễ parse
   totalPrice: number;
-  currency: string; // Loại tiền tệ, ví dụ 'VND'
-  status: string; // Trạng thái dưới dạng chuỗi, ví dụ: "COMPLETED", "PENDING"
-  itemCount: number; // Tổng số vé trong đơn hàng (GA + Seated)
+  status: string;
+  currency: string;
 }
 
 export interface TicketQrCode {
@@ -586,7 +612,8 @@ export interface UpdateSeatMapSectionRequest {
 export interface UpdateSeatMapRequest {
   name?: string;
   description?: string;
-  sections?: UpdateSeatMapSectionRequest[];
+  layoutData?: SeatMapLayoutData;
+  sections?: UpdateSectionRequest[];
 }
 
 export interface EventSearchParams {
@@ -645,15 +672,14 @@ export interface SeatMapPayload {
 
 // Kiểu dữ liệu chi tiết đầy đủ của một SeatMap từ API
 export type SeatMapDetails = SeatMap & {
-  sections: (SeatSection & { seats: Seat[] })[];
+  sections: SeatSection[];
 };
-
-// Props cho component SeatMapDesigner
-export interface SeatMapDesignerProps {
-  isEditMode: boolean;
-  initialData?: SeatMapDetails | null;
-  onSave: (payload: SeatMapPayload) => Promise<void>;
-}
+// // Props cho component SeatMapDesigner
+// export interface SeatMapDesignerProps {
+//   isEditMode: boolean;
+//   initialData?: SeatMapDetails | null;
+//   onSave: (payload: SeatMapPayload) => Promise<void>;
+// }
 
 export interface CreateSeatRequest {
   rowLabel: string;
@@ -787,11 +813,12 @@ export interface Shape {
 }
 
 export interface StageLayout {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  svgPath: string;
   label?: string;
+  style?: {
+    fill?: string;
+    stroke?: string;
+  };
 }
 
 export interface SeatMapLayout {
@@ -803,15 +830,9 @@ export interface SeatMapLayout {
 }
 
 export interface SectionLayout {
-  shape: "rect" | "polygon" | "path";
-  position?: Point;
-  width?: number;
-  height?: number;
-  points?: Point[];
-  svgPath?: string;
-  labelPosition?: Point;
-  style?: React.CSSProperties;
-  [key: string]: unknown;
+  svgPath: string; // <-- Dùng svgPath
+  labelPosition?: { x: number; y: number };
+  style?: { fill?: string; stroke?: string };
 }
 
 // --- Common Ticketing DTOs ---
@@ -827,7 +848,7 @@ export interface TicketType {
 
 // --- DTO for GENERAL_ADMISSION mode ---
 export interface GeneralAdmissionData {
-  availableTickets: TicketType[];
+  availableTickets: Ticket[];
   totalCapacity: number;
   availableCapacity: number;
 }
@@ -838,9 +859,9 @@ export interface Zone {
   name: string;
   capacity: number;
   availableCapacity: number;
-  availableTickets: TicketType[];
+  availableTickets: Ticket[];
   status: "AVAILABLE" | "SOLD_OUT" | "COMING_SOON";
-  coordinates?: SectionLayout;
+  layoutData?: SectionLayout;
 }
 
 export interface ZonedAdmissionData {
@@ -869,7 +890,7 @@ export interface Section {
   capacity: number;
   availableCapacity: number;
   seats: Seat[];
-  availableTickets: TicketType[];
+  availableTickets: Ticket[];
   layoutData?: SectionLayout;
 }
 
@@ -929,9 +950,12 @@ export interface HoldResponse {
   expiresAt: string;
 }
 
-export interface PaymentDetails {
-  paymentMethod: string;
-  paymentToken?: string;
+export interface FinalizePurchaseRequestDTO {
+  // 1. Dữ liệu để xác định phiên giao dịch
+  holdId: string;
+
+  // 2. Dữ liệu về cách thanh toán (chứa DTO kia bên trong)
+  paymentDetails: PaymentDetails;
 }
 
 export interface TicketPurchaseConfirmation {
@@ -986,4 +1010,177 @@ export interface DialogflowWebhookRequest {
 // Cấu trúc response webhook mà BE trả về (để tham khảo)
 export interface DialogflowWebhookResponse {
   fulfillmentText: string;
+}
+
+// Kiểu dữ liệu nội bộ của cartStore
+export type CartEventInfo = {
+  id: string;
+  title: string;
+  slug: string;
+  ticketSelectionMode: TicketSelectionModeEnum;
+  allowMixingTicketTypes?: boolean;
+};
+
+// Item trong giỏ hàng
+export type CartItem =
+  | { type: "GA"; ticket: Ticket; quantity: number }
+  | { type: "SEATED"; seat: Seat; ticket: Ticket };
+
+// DTO gửi lên backend
+export interface GaItemDTO {
+  ticketId: string;
+  quantity: number;
+}
+
+export interface HoldDetailsResponseDTO {
+  holdId: string;
+  eventId: string;
+  expiresAt: ISODateString;
+  // Bạn có thể thêm các thông tin tóm tắt khác nếu cần
+  // Ví dụ: totalPrice, summaryItems...
+  request: TicketHoldRequest; // Gửi lại request ban đầu để hiển thị tóm tắt
+}
+
+// =========================================
+// Purchase & Checkout Types
+// =========================================
+
+/**
+ * DTO chi tiết cho một đơn hàng, khớp với PurchaseDetailDTO từ backend.
+ * Dùng cho trang chi tiết đơn hàng và trang thanh toán thành công.
+ */
+export interface PurchaseDetailDTO {
+  id: string;
+  purchaseDate: ISODateString;
+  subTotal: number;
+  serviceFee: number;
+  totalPrice: number;
+  currency: string;
+  status: string; // e.g., "COMPLETED", "PENDING"
+  paymentMethod?: string;
+  transactionId?: string;
+
+  // Thông tin người mua và sự kiện (lồng nhau)
+  customer: CustomerInfoDTO;
+  event: EventInfoDTO;
+
+  // Chi tiết các loại vé trong đơn hàng
+  generalAdmissionTickets: PurchasedGATicketDTO[];
+  seatedTickets: PurchasedSeatedTicketDTO[];
+}
+
+// --- DTOs con cho PurchaseDetailDTO ---
+
+export interface CustomerInfoDTO {
+  id: string;
+  fullName?: string;
+  email: string;
+}
+
+export interface EventInfoDTO {
+  id: string;
+  title: string;
+  slug: string;
+  startDate: ISODateString;
+  // Bạn có thể thêm venue vào đây nếu backend trả về
+  // venue?: { name: string };
+}
+
+export interface PurchasedGATicketDTO {
+  ticketName: string;
+  quantity: number;
+  pricePerTicket: number;
+}
+
+export interface PurchasedSeatedTicketDTO {
+  sectionName: string;
+  rowLabel: string;
+  seatNumber: string;
+  ticketName: string;
+  priceAtPurchase: number;
+}
+
+// Sửa lại PaymentDetails
+export interface PaymentDetails {
+  paymentMethod: "MOMO" | "VNPAY" | "MOCK_PAYMENT"; // Chỉ hỗ trợ các phương thức này
+  paymentToken?: string; // Giữ lại cho tương lai, nhưng không dùng ngay
+}
+
+// DTO cho request tạo thanh toán (gửi đến BE)
+export interface PaymentCreationRequestDTO {
+  holdId: string;
+  paymentMethod: "MOMO" | "VNPAY";
+}
+
+// DTO cho response từ BE (chứa URL redirect)
+export interface PaymentCreationResultDTO {
+  paymentUrl: string;
+}
+
+// DTO cho request mock
+export interface MockFinalizeRequestDTO {
+  holdId: string;
+}
+
+// DTO để gửi kết quả từ URL về BE để xác thực
+export interface VerifyPaymentRequestDTO {
+  provider: "momo" | "vnpay";
+  params: Record<string, string>; // Tất cả query params từ URL
+}
+
+// =========================================
+// TYPES FOR SEAT MAP DESIGNER
+// =========================================
+
+// Dữ liệu nội bộ của một ghế trong state của designer
+export interface DesignerSeatData {
+  id: string; // Có thể là UUID thật hoặc ID tạm thời
+  rowLabel: string;
+  seatNumber: string;
+  seatType: string;
+  coordinates: { x: number; y: number };
+}
+
+// Dữ liệu nội bộ của một section trong state của designer
+export interface DesignerSectionData {
+  id: string;
+  name: string;
+  capacity: number;
+  layoutData: SectionLayoutData;
+  seats: DesignerSeatData[];
+}
+
+// Dữ liệu ban đầu và payload onSave
+export interface SeatMapDesignerProps {
+  isEditMode: boolean;
+  initialData: SeatMapDetails; // Dữ liệu từ API
+  onSave: (payload: UpdateSeatMapRequest) => Promise<void>;
+}
+
+// Cấu hình để tạo ghế hàng loạt
+export interface SeatGenerationConfig {
+  rows: number;
+  cols: number;
+  rowLabelType: "alpha" | "numeric";
+  startRow: string;
+  startCol: number;
+  hSpacing: number;
+  vSpacing: number;
+  seatType: string;
+}
+
+export interface UpdateSeatRequest {
+  id?: string;
+  rowLabel: string;
+  seatNumber: string;
+  seatType: string;
+  coordinates: { x: number; y: number };
+}
+
+export interface UpdateSectionRequest {
+  id?: string;
+  name: string;
+  capacity: number; // Thêm capacity vào đây
+  layoutData: SectionLayoutData; // Tên là layoutData
+  seats: UpdateSeatRequest[];
 }

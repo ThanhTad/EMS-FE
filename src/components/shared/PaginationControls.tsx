@@ -1,5 +1,5 @@
-//app/components/shared/PaginationControls.tsx
 "use client";
+
 import React from "react";
 import {
   Pagination,
@@ -10,171 +10,127 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "../ui/pagination";
-import { usePathname, useSearchParams, useRouter } from "next/navigation";
 
-interface PaginationControlsProps {
+// ===== BƯỚC 1: CẬP NHẬT PROPS =====
+// Component sẽ nhận tất cả những gì nó cần từ bên ngoài
+export interface PaginationControlsProps {
   currentPage: number;
   totalPages: number;
+  onPageChange: (page: number) => void; // Hàm callback để thông báo cho cha
+  isPending?: boolean; // Cờ trạng thái loading
 }
 
+// ===== BƯỚC 2: ĐƠN GIẢN HÓA COMPONENT =====
+// Bỏ hết các hook về router
 const PaginationControls: React.FC<PaginationControlsProps> = ({
   currentPage,
   totalPages,
+  onPageChange,
+  isPending = false, // Gán giá trị mặc định
 }) => {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const router = useRouter();
+  // Điều kiện này vẫn giữ nguyên
+  if (totalPages <= 1) {
+    return null;
+  }
 
-  const createPageURL = (pageNumber: number | string) => {
-    const params = new URLSearchParams(searchParams);
-    params.set("page", pageNumber.toString());
-    return `${pathname}?${params.toString()}`;
-  };
-
-  if (totalPages <= 1) return null;
-
+  // Logic tạo số trang có thể được đơn giản hóa một chút
   const renderPageNumbers = () => {
     const pageNumbers = [];
-    // Show prev, current, next pages (window size = 3)
-    for (
-      let i = Math.max(1, currentPage - 1);
-      i <= Math.min(totalPages, currentPage + 1);
-      i++
-    ) {
-      pageNumbers.push(
-        <PaginationItem key={i}>
-          <PaginationLink
-            href={createPageURL(i)}
-            isActive={currentPage === i}
-            className={currentPage === i ? "bg-primary text-white" : ""}
-            aria-current={currentPage === i ? "page" : undefined}
-            tabIndex={currentPage === i ? -1 : 0}
-            onClick={
-              currentPage === i
-                ? undefined
-                : (e) => {
-                    e.preventDefault();
-                    router.push(createPageURL(i));
-                  }
-            }
-          >
-            {i}
-          </PaginationLink>
-        </PaginationItem>
-      );
+    const windowSize = 2; // Số lượng trang hiển thị ở mỗi bên của trang hiện tại
+
+    // Luôn hiển thị trang 1
+    pageNumbers.push(1);
+
+    // Dấu ... ở đầu
+    if (currentPage > windowSize + 1) {
+      pageNumbers.push(-1); // Dùng số âm để đại diện cho ellipsis
     }
 
-    // First page + ellipsis
-    if (currentPage > 2) {
-      pageNumbers.unshift(
-        <PaginationItem key={1}>
-          <PaginationLink
-            href={createPageURL(1)}
-            className={currentPage === 1 ? "bg-primary text-white" : ""}
-            aria-current={currentPage === 1 ? "page" : undefined}
-            tabIndex={currentPage === 1 ? -1 : 0}
-            onClick={
-              currentPage === 1
-                ? undefined
-                : (e) => {
-                    e.preventDefault();
-                    router.push(createPageURL(1));
-                  }
-            }
-          >
-            1
-          </PaginationLink>
-        </PaginationItem>
-      );
-      if (currentPage > 3) {
-        pageNumbers.splice(
-          1,
-          0,
-          <PaginationItem key="start-ellipsis">
-            <PaginationEllipsis />
-          </PaginationItem>
-        );
-      }
+    // Các trang ở giữa
+    const startPage = Math.max(2, currentPage - (windowSize - 1));
+    const endPage = Math.min(totalPages - 1, currentPage + (windowSize - 1));
+
+    for (let i = startPage; i <= endPage; i++) {
+      pageNumbers.push(i);
     }
 
-    // Last page + ellipsis
-    if (currentPage < totalPages - 1) {
-      if (currentPage < totalPages - 2) {
-        pageNumbers.push(
-          <PaginationItem key="end-ellipsis">
-            <PaginationEllipsis />
-          </PaginationItem>
-        );
-      }
-      pageNumbers.push(
-        <PaginationItem key={totalPages}>
-          <PaginationLink
-            href={createPageURL(totalPages)}
-            className={
-              currentPage === totalPages ? "bg-primary text-white" : ""
-            }
-            aria-current={currentPage === totalPages ? "page" : undefined}
-            tabIndex={currentPage === totalPages ? -1 : 0}
-            onClick={
-              currentPage === totalPages
-                ? undefined
-                : (e) => {
-                    e.preventDefault();
-                    router.push(createPageURL(totalPages));
-                  }
-            }
-          >
-            {totalPages}
-          </PaginationLink>
-        </PaginationItem>
-      );
+    // Dấu ... ở cuối
+    if (currentPage < totalPages - windowSize) {
+      pageNumbers.push(-1);
     }
 
-    return pageNumbers;
+    // Luôn hiển thị trang cuối (nếu nó chưa được thêm)
+    if (totalPages > 1) {
+      pageNumbers.push(totalPages);
+    }
+
+    // Loại bỏ các số trùng lặp (ví dụ khi totalPages nhỏ)
+    const uniquePageNumbers = [...new Set(pageNumbers)];
+    return uniquePageNumbers;
   };
 
+  const pageNumbers = renderPageNumbers();
+
+  // Hàm xử lý chung cho việc click, tránh lặp code
+  const handleClick = (page: number) => {
+    if (isPending || page < 1 || page > totalPages || page === currentPage) {
+      return;
+    }
+    onPageChange(page);
+  };
+
+  // ===== BƯỚC 3: CẬP NHẬT JSX =====
+  // Bỏ href và chỉ dùng onClick
   return (
     <Pagination>
       <PaginationContent>
+        {/* Nút Previous */}
         <PaginationItem>
           <PaginationPrevious
-            href={currentPage > 1 ? createPageURL(currentPage - 1) : "#"}
-            aria-disabled={currentPage <= 1}
-            tabIndex={currentPage <= 1 ? -1 : undefined}
+            aria-disabled={isPending || currentPage === 1}
             className={
-              currentPage <= 1 ? "pointer-events-none opacity-50" : undefined
+              isPending || currentPage === 1
+                ? "pointer-events-none opacity-50"
+                : "cursor-pointer"
             }
-            onClick={
-              currentPage <= 1
-                ? undefined
-                : (e) => {
-                    e.preventDefault();
-                    router.push(createPageURL(currentPage - 1));
-                  }
-            }
+            onClick={() => handleClick(currentPage - 1)}
           />
         </PaginationItem>
-        {renderPageNumbers()}
+
+        {/* Các số trang */}
+        {pageNumbers.map((page, index) =>
+          page === -1 ? (
+            <PaginationItem key={`ellipsis-${index}`}>
+              <PaginationEllipsis />
+            </PaginationItem>
+          ) : (
+            <PaginationItem key={page}>
+              <PaginationLink
+                isActive={currentPage === page}
+                aria-disabled={isPending}
+                className={
+                  isPending
+                    ? "pointer-events-none opacity-50"
+                    : "cursor-pointer"
+                }
+                onClick={() => handleClick(page)}
+              >
+                {page}
+              </PaginationLink>
+            </PaginationItem>
+          )
+        )}
+
+        {/* Nút Next */}
         <PaginationItem>
           <PaginationNext
-            href={
-              currentPage < totalPages ? createPageURL(currentPage + 1) : "#"
-            }
-            aria-disabled={currentPage >= totalPages}
-            tabIndex={currentPage >= totalPages ? -1 : undefined}
+            aria-disabled={isPending || currentPage === totalPages}
             className={
-              currentPage >= totalPages
+              isPending || currentPage === totalPages
                 ? "pointer-events-none opacity-50"
-                : undefined
+                : "cursor-pointer"
             }
-            onClick={
-              currentPage >= totalPages
-                ? undefined
-                : (e) => {
-                    e.preventDefault();
-                    router.push(createPageURL(currentPage + 1));
-                  }
-            }
+            onClick={() => handleClick(currentPage + 1)}
           />
         </PaginationItem>
       </PaginationContent>

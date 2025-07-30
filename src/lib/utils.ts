@@ -2,8 +2,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { format, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
-import { TicketHoldRequest } from "@/types";
-import { useCartStore } from "@/stores/cartStore";
+import { CartEventInfo, CartItem, GaItemDTO, TicketHoldRequest } from "@/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -114,28 +113,68 @@ export function formatISODate(
   }
 }
 
-export function createHoldRequestDTOFromCart(): TicketHoldRequest {
-  const { items, event } = useCartStore.getState();
-
-  if (!event) {
-    throw new Error("Event is not set in the cart.");
+export function createHoldRequestDTO(
+  items: Record<string, CartItem>,
+  eventInfo: CartEventInfo
+): TicketHoldRequest {
+  // Validation đầu vào
+  if (!items || Object.keys(items).length === 0) {
+    throw new Error("Cart is empty");
   }
 
-  const gaItems: { ticketId: string; quantity: number }[] = [];
-  const seatIds: string[] = [];
-
-  for (const item of items.values()) {
-    if (item.type === "GA") {
-      gaItems.push({ ticketId: item.ticket.id, quantity: item.quantity });
-    } else {
-      // SEATED
-      seatIds.push(item.seat.id);
-    }
+  if (!eventInfo?.ticketSelectionMode) {
+    throw new Error("Event info or ticket selection mode is missing");
   }
 
-  return {
-    selectionMode: event.ticketSelectionMode,
-    gaItems: gaItems,
-    seatIds: seatIds,
+  // Chuyển đổi object items thành một mảng để dễ xử lý
+  const cartItemsArray = Object.values(items);
+
+  // Sử dụng reduce để xử lý hiệu quả hơn
+  const { gaItems, seatIds } = cartItemsArray.reduce<{
+    gaItems: GaItemDTO[];
+    seatIds: string[];
+  }>(
+    (acc, item) => {
+      if (item.type === "GA") {
+        // Validation cho GA items
+        if (!item.ticket?.id || item.quantity <= 0) {
+          throw new Error(`Invalid GA ticket item: ${JSON.stringify(item)}`);
+        }
+
+        acc.gaItems.push({
+          ticketId: item.ticket.id,
+          quantity: item.quantity,
+        });
+      } else if (item.type === "SEATED") {
+        // Validation cho SEATED items
+        if (!item.seat?.seatId) {
+          throw new Error(
+            `Invalid seated ticket item: ${JSON.stringify(item)}`
+          );
+        }
+
+        acc.seatIds.push(item.seat.seatId);
+      } else {
+        // Log warning cho unknown types nhưng không throw error
+        console.warn(`Unknown cart: ${item}`);
+      }
+
+      return acc;
+    },
+    { gaItems: [], seatIds: [] }
+  );
+
+  // Validation kết quả
+  if (gaItems.length === 0 && seatIds.length === 0) {
+    throw new Error("No valid items found in cart");
+  }
+
+  // Tạo đối tượng DTO cuối cùng
+  const holdRequest: TicketHoldRequest = {
+    selectionMode: eventInfo.ticketSelectionMode,
+    gaItems,
+    seatIds,
   };
+
+  return holdRequest;
 }

@@ -7,6 +7,8 @@ import EventInfo from "@/components/features/events/EventInfo";
 import TicketingInterface from "@/components/features/tickets/TicketInterface";
 import { getEventTicketingBySlug } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useCartStore } from "@/stores/cartStore";
+import { useEffect } from "react";
 
 interface EventDetailClientProps {
   initialData: EventTicketingDetails;
@@ -22,6 +24,16 @@ const EventDetailClient: React.FC<EventDetailClientProps> = ({
     revalidateOnFocus: true,
     dedupingInterval: 60000,
   });
+
+  const startNewCart = useCartStore((state) => state.startNewCart);
+
+  useEffect(() => {
+    // "Ra lệnh" cho store và truyền vào dữ liệu `EventTicketingDetails`
+    // Store sẽ tự biết cách "đọc" và xử lý nó.
+    if (data) {
+      startNewCart(data);
+    }
+  }, [data, startNewCart]);
 
   if (isLoading && !data) return <EventDetailSkeleton />;
 

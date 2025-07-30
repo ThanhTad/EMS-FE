@@ -1,172 +1,138 @@
 // stores/cartStore.ts
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import { Event, Ticket, Seat, TicketSelectionModeEnum } from "@/types";
+import {
+  Ticket,
+  Seat,
+  EventTicketingDetails,
+  CartEventInfo,
+  CartItem,
+} from "@/types";
 
-// Định nghĩa các loại item trong giỏ hàng
-type CartItem =
-  | { type: "GA"; ticket: Ticket; quantity: number }
-  | { type: "SEATED"; seat: Seat; ticket: Ticket };
-
+/**
+ * Định nghĩa state và các actions của cartStore.
+ */
 interface CartState {
-  event: Event | null;
-  // Dùng Map để truy cập nhanh và tránh trùng lặp. Key là ticketId cho GA, seatId cho SEATED.
-  items: Map<string, CartItem>;
-  setEvent: (event: Event) => void;
+  eventInfo: CartEventInfo | null;
+  items: Record<string, CartItem>;
+
+  // --- ACTIONS ---
+  // Action này giờ sẽ nhận một kiểu dữ liệu rộng hơn
+  startNewCart: (eventData: EventTicketingDetails) => void;
   updateGaQuantity: (ticket: Ticket, quantity: number) => void;
   addSeat: (seat: Seat, ticket: Ticket) => void;
   removeSeat: (seatId: string) => void;
+  clearCartItems: () => void;
   clearCart: () => void;
-  getTotalQuantity: () => number;
-  getTotalPrice: () => number;
-  getSelectionMode: () => TicketSelectionModeEnum;
-  canMixModes: () => boolean; // Kiểm tra xem có thể mix GA và SEATED không
 }
 
 export const useCartStore = create<CartState>()(
   devtools(
     persist(
       (set, get) => ({
-        event: null,
-        items: new Map(),
+        eventInfo: null,
+        items: {},
 
-        setEvent: (newEvent) => {
-          const currentEvent = get().event;
-          if (currentEvent && currentEvent.id !== newEvent.id) {
-            // Nếu chuyển sang sự kiện khác, xóa giỏ hàng cũ
-            set({ event: newEvent, items: new Map() });
-          } else {
-            set({ event: newEvent });
-          }
-        },
+        /**
+         * Action: Bắt đầu một giỏ hàng mới cho một sự kiện.
+         * Tự "dịch" từ EventTicketingDetails sang cấu trúc nội bộ CartEventInfo.
+         * @param eventData - Dữ liệu đầy đủ của EventTicketingDetails từ API.
+         */
+        startNewCart: (eventData) => {
+          // ========================================================
+          // === ĐÂY LÀ PHẦN "PHÉP MÀU" - LOGIC CHUYỂN ĐỔI DỮ LIỆU ===
+          // ========================================================
+          const newEventInfo: CartEventInfo = {
+            id: eventData.eventId, // <-- Lấy từ eventId
+            title: eventData.eventTitle, // <-- Lấy từ eventTitle
+            slug: eventData.slug,
+            ticketSelectionMode: eventData.ticketSelectionMode,
+            // Giả sử DTO của bạn cũng có trường này, nếu không thì mặc định là false
+            // allowMixingTicketTypes: eventData.allowMixingTicketTypes ?? false,
+          };
+          // ========================================================
 
-        updateGaQuantity: (ticket, quantity) => {
-          const { items, canMixModes } = get();
+          const currentEventInfo = get().eventInfo;
 
-          // Kiểm tra xem có thể thêm GA khi đã có SEATED không
-          const hasSeatedItems = Array.from(items.values()).some(
-            (item) => item.type === "SEATED"
-          );
-          if (hasSeatedItems && !canMixModes()) {
-            throw new Error(
-              "Không thể thêm vé General Admission khi đã có vé có ghế được chọn"
+          if (!currentEventInfo || currentEventInfo.id !== newEventInfo.id) {
+            set(
+              { eventInfo: newEventInfo, items: {} },
+              false,
+              "cart/startNewCart"
             );
           }
-
-          const newItems = new Map(items);
-          if (quantity <= 0) {
-            newItems.delete(ticket.id);
-          } else {
-            newItems.set(ticket.id, { type: "GA", ticket, quantity });
-          }
-          set({ items: newItems });
         },
 
-        addSeat: (seat, ticket) => {
-          const { items, canMixModes } = get();
+        // Các actions còn lại (updateGaQuantity, addSeat, ...) không cần thay đổi
+        // vì chúng hoạt động dựa trên `eventInfo` đã được chuẩn hóa trong state.
+        updateGaQuantity: (ticket, quantity) =>
+          set((state) => {
+            const { items, eventInfo } = state;
+            if (!eventInfo) return state;
 
-          // Kiểm tra xem có thể thêm SEATED khi đã có GA không
-          const hasGaItems = Array.from(items.values()).some(
-            (item) => item.type === "GA"
-          );
-          if (hasGaItems && !canMixModes()) {
-            throw new Error(
-              "Không thể chọn ghế cụ thể khi đã có vé General Admission"
+            const canMix = eventInfo.allowMixingTicketTypes ?? false;
+            const hasSeatedItems = Object.values(items).some(
+              (item) => item.type === "SEATED"
             );
-          }
-
-          const newItems = new Map(items);
-          newItems.set(seat.id, { type: "SEATED", seat, ticket });
-          set({ items: newItems });
-        },
-
-        removeSeat: (seatId) => {
-          const newItems = new Map(get().items);
-          newItems.delete(seatId);
-          set({ items: newItems });
-        },
-
-        clearCart: () => set({ items: new Map() }),
-
-        getTotalQuantity: () => {
-          let total = 0;
-          for (const item of get().items.values()) {
-            if (item.type === "GA") {
-              total += item.quantity;
-            } else {
-              total += 1; // Mỗi item SEATED là 1 vé
+            if (hasSeatedItems && !canMix) {
+              return state;
             }
-          }
-          return total;
-        },
 
-        getTotalPrice: () => {
-          let total = 0;
-          for (const item of get().items.values()) {
-            if (item.type === "GA") {
-              total += item.ticket.price * item.quantity;
+            const newItems = { ...items };
+            if (quantity <= 0) {
+              delete newItems[ticket.id];
             } else {
-              total += item.ticket.price;
+              newItems[ticket.id] = { type: "GA", ticket, quantity };
             }
-          }
-          return total;
-        },
+            return { items: newItems };
+          }),
 
-        getSelectionMode: () => {
-          const items = get().items;
-          const hasSeatedItems = Array.from(items.values()).some(
-            (item) => item.type === "SEATED"
-          );
-          const hasGaItems = Array.from(items.values()).some(
-            (item) => item.type === "GA"
-          );
+        addSeat: (seat, ticket) =>
+          set((state) => {
+            const { items, eventInfo } = state;
+            if (!eventInfo) return state;
 
-          if (hasSeatedItems && hasGaItems) {
-            // Nếu có cả hai loại, cần xem event hỗ trợ ZONED_ADMISSION không
-            // Tạm thời return RESERVED_SEATING vì backend ưu tiên SEATED
-            return TicketSelectionModeEnum.RESERVED_SEATING;
-          } else if (hasSeatedItems) {
-            return TicketSelectionModeEnum.RESERVED_SEATING;
-          } else {
-            return TicketSelectionModeEnum.GENERAL_ADMISSION;
-          }
-        },
+            const newItems = { ...items };
+            newItems[seat.seatId] = { type: "SEATED", seat, ticket };
+            return { items: newItems };
+          }),
 
-        canMixModes: () => {
-          // Tùy thuộc vào business logic, hiện tại return false
-          // Có thể thay đổi dựa trên event configuration
-          return false;
-        },
+        removeSeat: (seatId) =>
+          set(
+            (state) => {
+              const newItems = { ...state.items };
+              delete newItems[seatId];
+              return { items: newItems };
+            },
+            false,
+            "cart/removeSeat"
+          ),
+
+        clearCartItems: () => set({ items: {} }, false, "cart/clearItems"),
+
+        clearCart: () =>
+          set({ items: {}, eventInfo: null }, false, "cart/clearCart"),
       }),
       {
         name: "ticket-cart-storage",
-        // Custom serializer để Map có thể hoạt động với persist middleware
-        storage: {
-          getItem: (name) => {
-            const str = localStorage.getItem(name);
-            if (!str) return null;
-            const { state } = JSON.parse(str);
-            return {
-              state: {
-                ...state,
-                items: new Map(JSON.parse(state.items)),
-              },
-            };
-          },
-          setItem: (name, newValue) => {
-            const str = JSON.stringify({
-              state: {
-                ...newValue.state,
-                items: JSON.stringify(
-                  Array.from(newValue.state.items.entries())
-                ),
-              },
-            });
-            localStorage.setItem(name, str);
-          },
-          removeItem: (name) => localStorage.removeItem(name),
-        },
       }
     )
   )
 );
+
+// Các selectors (useTotalCartQuantity, useTotalCartPrice) giữ nguyên, không cần thay đổi.
+export const useTotalCartQuantity = () =>
+  useCartStore((state) => {
+    return Object.values(state.items).reduce((total, item) => {
+      return total + (item.type === "GA" ? item.quantity : 1);
+    }, 0);
+  });
+
+export const useTotalCartPrice = () =>
+  useCartStore((state) => {
+    return Object.values(state.items).reduce((total, item) => {
+      const price = item.ticket.price;
+      const quantity = item.type === "GA" ? item.quantity : 1;
+      return total + price * quantity;
+    }, 0);
+  });

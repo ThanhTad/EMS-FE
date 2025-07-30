@@ -11,64 +11,81 @@ import { Separator } from "@/components/ui/separator";
 import {
   CheckCircleIcon,
   CalendarIcon,
-  MapPinIcon,
   HomeIcon,
   HistoryIcon,
   ArmchairIcon,
+  TicketIcon,
+  AlertCircle,
 } from "lucide-react";
 import { formatDateTime, formatPrice } from "@/lib/utils";
-import { getPurchaseById } from "@/lib/api"; // <<< SỬA: API chuẩn để lấy 1 đơn hàng
-import { TicketPurchase } from "@/types";
+import { getPurchaseDetailsById } from "@/lib/api";
+import { PurchaseDetailDTO } from "@/types";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useCartStore } from "@/stores/cartStore";
 
 function SuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const purchaseId = searchParams.get("purchaseId"); // <<< SỬA: Lấy purchaseId
+  const purchaseId = searchParams.get("purchaseId");
+  const clearCart = useCartStore((state) => state.clearCart);
 
-  // <<< SỬA: State là một object TicketPurchase, không phải mảng
-  const [purchase, setPurchase] = useState<TicketPurchase | null>(null);
+  const [purchase, setPurchase] = useState<PurchaseDetailDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!purchaseId) {
-      setError("Thiếu thông tin đơn hàng. Đang chuyển hướng...");
-      setTimeout(() => router.push("/"), 3000);
-      return;
+      setError("Thiếu thông tin đơn hàng. Đang chuyển hướng về trang chủ...");
+      const timer = setTimeout(() => router.push("/"), 3000);
+      return () => clearTimeout(timer);
     }
 
     const loadPurchaseData = async (id: string) => {
       try {
         setLoading(true);
-        const purchaseData = await getPurchaseById(id); // <<< SỬA: Gọi API đúng
-        if (purchaseData) {
-          setPurchase(purchaseData);
-        } else {
-          setError("Không tìm thấy chi tiết đơn hàng.");
-        }
+        const purchaseData = await getPurchaseDetailsById(id);
+        setPurchase(purchaseData);
+        clearCart();
       } catch (err) {
-        if (err instanceof Error)
-          setError("Không thể tải thông tin đơn hàng. Vui lòng thử lại.");
+        console.error("Failed to load purchase data:", err);
+        setError(
+          "Không thể tải thông tin đơn hàng. Có thể đơn hàng không tồn tại hoặc bạn không có quyền xem."
+        );
       } finally {
         setLoading(false);
       }
     };
     loadPurchaseData(purchaseId);
-  }, [purchaseId, router]);
+  }, [clearCart, purchaseId, router]);
 
   if (loading) return <SuccessSkeleton />;
-  if (error) {
-    /* ... giữ nguyên logic xử lý lỗi ... */
-  }
-  if (!purchase) return <p>Không tìm thấy đơn hàng.</p>;
 
-  const { event, status } = purchase;
+  if (error) {
+    return (
+      <div className="max-w-2xl mx-auto p-4 my-8">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Đã có lỗi xảy ra!</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  if (!purchase) {
+    return (
+      <p className="text-center my-8">Không tìm thấy thông tin đơn hàng.</p>
+    );
+  }
+
+  const { event, generalAdmissionTickets, seatedTickets } = purchase;
   const totalItemCount =
-    (purchase.purchasedGaTickets?.reduce((sum, t) => sum + t.quantity, 0) ||
-      0) + (purchase.purchasedSeats?.length || 0);
+    (generalAdmissionTickets?.reduce((sum, t) => sum + t.quantity, 0) || 0) +
+    (seatedTickets?.length || 0);
+  console.log("Purchase details:", purchase);
 
   return (
-    <div className="max-w-2xl mx-auto p-4 space-y-6">
+    <div className="max-w-2xl mx-auto p-4 space-y-6 my-8">
       <div className="text-center space-y-4">
         <div className="mx-auto w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
           <CheckCircleIcon className="w-8 h-8 text-green-600" />
@@ -78,7 +95,8 @@ function SuccessContent() {
             Thanh toán thành công!
           </h1>
           <p className="text-muted-foreground mt-2">
-            Vé của bạn đã được đặt. Vui lòng kiểm tra email để nhận vé điện tử.
+            Vé của bạn đã được xác nhận. Vui lòng kiểm tra email để nhận vé điện
+            tử.
           </p>
         </div>
       </div>
@@ -94,40 +112,44 @@ function SuccessContent() {
           </div>
           <div>
             <span className="text-muted-foreground">Trạng thái:</span>{" "}
-            <Badge variant="secondary">{status?.status}</Badge>
+            <Badge
+              variant={
+                purchase.status === "COMPLETED" ? "default" : "secondary"
+              }
+            >
+              {purchase.status}
+            </Badge>
           </div>
           <Separator />
 
-          <h4 className="font-medium">Các vé đã đặt:</h4>
+          <h4 className="font-medium">Các vé đã đặt ({totalItemCount}):</h4>
           <div className="space-y-2">
-            {/* <<< SỬA: Lặp qua vé GA */}
-            {purchase.purchasedGaTickets?.map((gaTicket) => (
+            {generalAdmissionTickets?.map((gaTicket, index) => (
               <div
-                key={gaTicket.id}
+                key={`ga-${index}`}
                 className="flex justify-between items-center text-sm"
               >
-                <span>
-                  {gaTicket.ticket?.name} (x{gaTicket.quantity})
+                <span className="flex items-center gap-2">
+                  <TicketIcon className="h-4 w-4 text-muted-foreground" />
+                  {gaTicket.ticketName} (x{gaTicket.quantity})
                 </span>
                 <span className="font-semibold">
                   {formatPrice(gaTicket.pricePerTicket * gaTicket.quantity)}
                 </span>
               </div>
             ))}
-            {/* <<< SỬA: Lặp qua vé đã chọn ghế */}
-            {purchase.purchasedSeats?.map((seat) => (
+            {seatedTickets?.map((seat, index) => (
               <div
-                key={seat.id}
+                key={`seat-${index}`}
                 className="flex justify-between items-center text-sm"
               >
                 <span className="flex items-center gap-2">
-                  <ArmchairIcon className="h-4 w-4" /> Ghế{" "}
-                  {seat.seat?.seatNumber} (Hàng {seat.seat?.rowLabel})
+                  <ArmchairIcon className="h-4 w-4 text-muted-foreground" />
+                  Ghế {seat.seatNumber} (Hàng {seat.rowLabel} -{" "}
+                  {seat.sectionName})
                 </span>
                 <span className="font-semibold">
-                  {seat.priceAtPurchase !== undefined
-                    ? formatPrice(seat.priceAtPurchase)
-                    : "N/A"}
+                  {formatPrice(seat.priceAtPurchase)}
                 </span>
               </div>
             ))}
@@ -136,24 +158,12 @@ function SuccessContent() {
           <Separator />
           <div className="space-y-2 pt-2 text-sm">
             <div className="flex justify-between">
-              <span>Tổng số vé:</span>
-              <span className="font-medium">{totalItemCount}</span>
-            </div>
-            <div className="flex justify-between">
               <span>Tạm tính:</span>
-              <span>
-                {purchase.subtotal !== undefined
-                  ? formatPrice(purchase.subtotal)
-                  : "N/A"}
-              </span>
+              <span>{formatPrice(purchase.subTotal)}</span>
             </div>
             <div className="flex justify-between">
               <span>Phí dịch vụ:</span>
-              <span>
-                {purchase.serviceFee !== undefined
-                  ? formatPrice(purchase.serviceFee)
-                  : "N/A"}
-              </span>
+              <span>{formatPrice(purchase.serviceFee)}</span>
             </div>
             <div className="flex justify-between font-bold text-lg">
               <span>Tổng cộng:</span>
@@ -177,26 +187,25 @@ function SuccessContent() {
               {formatDateTime(event.startDate).date} lúc{" "}
               {formatDateTime(event.startDate).time}
             </div>
-            <div className="flex items-center gap-2 text-muted-foreground">
+            {/* Nếu bạn đã thêm venue vào EventInfoDTO, bạn có thể bỏ comment dòng dưới */}
+            {/* <div className="flex items-center gap-2 text-muted-foreground">
               <MapPinIcon className="h-4 w-4" />
-              {event.venue?.name}
-            </div>
+              {event.venue?.name} 
+            </div> */}
           </CardContent>
         </Card>
       )}
 
       <div className="flex flex-col sm:flex-row gap-4">
         <Button onClick={() => router.push("/")} className="flex-1">
-          <HomeIcon className="mr-2 h-4 w-4" />
-          Về trang chủ
+          <HomeIcon className="mr-2 h-4 w-4" /> Về trang chủ
         </Button>
         <Button
           variant="outline"
           onClick={() => router.push("/my-tickets")}
           className="flex-1"
         >
-          <HistoryIcon className="mr-2 h-4 w-4" />
-          Xem vé của tôi
+          <HistoryIcon className="mr-2 h-4 w-4" /> Xem vé của tôi
         </Button>
       </div>
     </div>
@@ -206,51 +215,49 @@ function SuccessContent() {
 // Component Skeleton cho trạng thái đang tải
 function SuccessSkeleton() {
   return (
-    <div className="max-w-2xl mx-auto p-4 space-y-6 animate-pulse">
+    <div className="max-w-2xl mx-auto p-4 space-y-6 my-8 animate-pulse">
       <div className="text-center space-y-4">
         <Skeleton className="w-16 h-16 rounded-full mx-auto" />
-        <Skeleton className="h-8 w-64 mx-auto" />
-        <Skeleton className="h-4 w-80 mx-auto" />
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-64 mx-auto" />
+          <Skeleton className="h-4 w-80 mx-auto" />
+        </div>
       </div>
-
       <Card>
         <CardHeader>
           <Skeleton className="h-6 w-40" />
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-4 w-1/3" />
           </div>
           <Separator />
           <div className="space-y-3">
-            {[1, 2].map((i) => (
-              <div key={i} className="flex justify-between">
-                <Skeleton className="h-5 w-32" />
-                <Skeleton className="h-5 w-24" />
-              </div>
-            ))}
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-5 w-1/2" />
           </div>
           <Separator />
           <div className="space-y-3 pt-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex justify-between">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-            ))}
+            <div className="flex justify-between">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+            <div className="flex justify-between">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+            <div className="flex justify-between">
+              <Skeleton className="h-6 w-28" />
+              <Skeleton className="h-6 w-24" />
+            </div>
           </div>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-6 w-40" />
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-20 w-full" />
-        </CardContent>
-      </Card>
+      <div className="flex gap-4">
+        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-11 w-full" />
+      </div>
     </div>
   );
 }
